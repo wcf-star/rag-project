@@ -1,0 +1,392 @@
+{
+  "meta": {
+    "title": "RAG Challenge 2 · 架构 Onboarding 全景图",
+    "h1": "RAG Challenge 2 架构总览",
+    "subtitle": "冠军 RAG 方案 · 一次问答请求的完整生命周期 · <b>4 层</b> / 13 模块 / 6 流水线阶段",
+    "stats": [
+      { "num": "13", "lbl": "核心模块" },
+      { "num": "6", "lbl": "流水线阶段", "amber": true },
+      { "num": "~4.6k", "lbl": "行 Python" }
+    ],
+    "project": "RAG-Challenge-2 / src",
+    "docCap": "模块说明 · 分层导读",
+    "slug": "rag-challenge-2-onboarding",
+    "welcomeSub": "一次问答请求的完整生命周期 · <b>4 层</b> 架构 · 13 模块 · 本地 Ollama",
+    "welcomeItems": [
+      { "icon": "🧭", "html": "点上方<b>「跟着流程走」</b>，10 站从环境启动走到提交答案，覆盖一次问答的完整生命周期" },
+      { "icon": "🔍", "html": "左侧工程树按 <b>4 层</b> 组织（入口 / 数据准备 / 检索问答 / 外部），支持搜索与展开折叠" },
+      { "icon": "🔗", "html": "右侧说明卡徽标颜色 = 分层：<b>绿=入口 · 橙=数据准备 · 紫=检索问答 · 灰=外部/配置</b>；三栏点击联动" }
+    ]
+  },
+  "tabs": ["over", "seq", "flow"],
+  "over": "flowchart LR\n    classDef newc fill:#e6f6ec,stroke:#17a45f,stroke-width:2px,color:#0b5c3a\n    classDef oldc fill:#f1f3f6,stroke:#9aa3af,stroke-width:1.2px,stroke-dasharray:5 3,color:#5a6068\n    classDef extc fill:#eaf1fe,stroke:#3574f0,stroke-width:1.6px,color:#1c3257\n    classDef warnc fill:#fff4e0,stroke:#e6a23c,stroke-width:1.6px,color:#7a4101\n\n    subgraph ENTRY[\"🖥️ 入口 / 编排\"]\n        MAIN[\"main.py · CLI<br/>download-models / parse-pdfs / serialize-tables<br/>process-reports / process-questions\"]\n        PIPE[\"pipeline.py · Pipeline<br/>process_questions / process_parsed_reports<br/>RunConfig / PipelineConfig\"]\n    end\n    subgraph PREP[\"📄 数据准备 · 离线索引\"]\n        PDF[\"pdf_parsing · PDFParser<br/>Docling 解析 PDF → JSON\"]\n        TAB[\"tables_serialization · TableSerializer<br/>LLM 序列化表格（可选）\"]\n        MERGE[\"parsed_reports_merging · PageTextPreparation<br/>规整为每页文本\"]\n        SPLIT[\"text_splitter · TextSplitter<br/>split_all_reports 按页分块\"]\n        ING[\"ingestion · VectorDBIngestor / BM25Ingestor<br/>建 FAISS / BM25 索引\"]\n        ASYNC[\"api_request_parallel_processor<br/>异步并发（表格序列化用）\"]\n    end\n    subgraph QA[\"🔍 检索问答 · 在线\"]\n        RET[\"retrieval · VectorRetriever / HybridRetriever / BM25Retriever<br/>向量 / 混合检索\"]\n        RER[\"reranking · LLMReranker / JinaReranker<br/>LLM 加权重排\"]\n        API[\"api_requests · APIProcessor / BaseOpenaiProcessor<br/>结构化输出\"]\n        PRM[\"prompts · 提示词与 Schema\"]\n        QAP[\"questions_processing · QuestionsProcessor<br/>问答主逻辑 / 引用校验\"]\n        OLLCLI[\"ollama_client · create_ollama_client()<br/>get_ollama_embeddings()\"]\n    end\n    subgraph EXT[\"☁️ 外部依赖\"]\n        OLL[(\"Ollama · qwen2.5 / bge-m3\")]\n        DOC[(\"Docling + FAISS\")]\n        JINA[(\"Jina API（可选重排）\")]\n    end\n\n    MAIN --> PIPE\n    PIPE --> PDF\n    PIPE -. 可选 .-> TAB\n    PIPE --> QAP\n    PDF --> MERGE --> SPLIT --> ING\n    TAB --> MERGE\n    ASYNC -. 支撑 .-> TAB\n    ING --> RET\n    QAP --> RET --> RER --> API --> PRM\n    RER -. 可选 .-> JINA\n    API --> OLLCLI --> OLL\n    ING --> OLL\n    PDF --> DOC\n    ING --> DOC\n    RET --> DOC\n\n    class MAIN,PIPE,QAP,RET,RER,API newc\n    class PDF,MERGE,SPLIT,ING,PRM,ASYNC,OLLCLI oldc\n    class TAB warnc\n    class OLL,DOC,JINA extc",
+  "seq": "sequenceDiagram\n    autonumber\n    participant CLI as main.py · Pipeline process_questions()\n    participant QAP as questions_processing · QuestionsProcessor\n    participant RET as retrieval · VectorRetriever / HybridRetriever\n    participant RER as reranking · LLMReranker\n    participant API as api_requests · APIProcessor\n    participant OLL as Ollama qwen2.5 / bge-m3\n\n    CLI->>QAP: process_all_questions(output_path)\n    QAP->>QAP: process_questions_list → _process_single_question\n    QAP->>QAP: _extract_companies_from_subset(question) 提取公司名\n    alt 多公司比较问题\n        QAP->>API: get_rephrased_questions(question, companies)\n        API->>OLL: 拆解为每个公司的独立问题\n        OLL-->>API: RephrasedQuestions\n    end\n    QAP->>RET: retrieve_by_company_name(company, query, top_n)\n    RET->>RET: _get_embedding(query) → faiss.search\n    opt llm_reranking 启用\n        RET->>RER: rerank_documents(query, docs)\n        RER->>API: send_message(is_structured=True, response_format)\n        API->>OLL: POST /v1/chat/completions\n        OLL-->>API: relevance_score JSON\n        API-->>RER: 向量分 + LLM 分加权融合\n        RER-->>RET: 重排后的 top_n\n    end\n    RET-->>QAP: 检索上下文（page + text）\n    QAP->>API: get_answer_from_rag_context(question, rag_context, schema)\n    API->>API: _build_rag_context_prompts(schema) 选 Prompt + Schema\n    API->>OLL: chat.completions（JSON Schema 结构化输出）\n    OLL-->>API: step_by_step_analysis / reasoning_summary / relevant_pages / final_answer\n    API-->>QAP: answer_dict\n    QAP->>QAP: _validate_page_references 校验幻觉页码\n    QAP->>QAP: _extract_references → pdf_sha1 + page_index\n    QAP->>QAP: _save_progress → 提交格式 answers.json\n    QAP-->>CLI: 统计 total / error / N/A / success",
+  "flow": "flowchart TB\n    classDef newc fill:#e6f6ec,stroke:#17a45f,stroke-width:2px,color:#0b5c3a\n    classDef oldc fill:#f1f3f6,stroke:#9aa3af,stroke-width:1.2px,stroke-dasharray:5 3,color:#5a6068\n    classDef extc fill:#eaf1fe,stroke:#3574f0,stroke-width:1.6px,color:#1c3257\n    classDef warnc fill:#fff4e0,stroke:#e6a23c,stroke-width:1.6px,color:#7a4101\n    classDef errc fill:#fdecec,stroke:#e5484d,stroke-width:1.8px,color:#b3232a\n\n    PDF[\"pdf_parsing · PDFParser<br/>parse_and_export_parallel()\"]\n    TAB{\"use_serialized_tables ?\"}\n    SER[\"tables_serialization · TableSerializer<br/>serialize_tables()（可选）\"]\n    MERGE[\"parsed_reports_merging · PageTextPreparation<br/>process_reports() 规整为页文本\"]\n    MD[\"export_to_markdown()<br/>人工复核用\"]\n    SPLIT[\"text_splitter · TextSplitter<br/>split_all_reports() 按页分块\"]\n    CHUNK[(\"databases/chunked_reports/*.json\")]\n    VEC[\"ingestion · VectorDBIngestor<br/>bge-m3 嵌入 → faiss IndexFlatIP\"]\n    BM[\"ingestion · BM25Ingestor<br/>BM25Okapi 索引\"]\n    FAISS[(\"databases/vector_dbs/*.faiss\")]\n    BMDB[(\"databases/bm25_dbs/*.pkl\")]\n    OLL[(\"☁️ Ollama /api/embed\")]\n    RET[\"retrieval · VectorRetriever / BM25Retriever<br/>在线检索消费\"]\n\n    PDF --> TAB\n    TAB -->|是| SER --> MERGE\n    TAB -->|否| MERGE\n    MERGE --> MD\n    MERGE --> SPLIT --> CHUNK\n    CHUNK --> VEC --> FAISS\n    CHUNK --> BM --> BMDB\n    VEC --> OLL\n    FAISS --> RET\n    BMDB --> RET\n\n    class PDF,MERGE,SPLIT,VEC,BM newc\n    class TAB oldc\n    class SER,MD warnc\n    class OLL,FAISS,BMDB,CHUNK extc\n    class RET oldc",
+  "tree": [
+    {
+      "t": "module",
+      "n": "RAG-Challenge-2（冠军方案）",
+      "children": [
+        {
+          "t": "pkg",
+          "n": "入口 / 编排",
+          "children": [
+            {
+              "t": "class",
+              "n": "main.py",
+              "b": "new",
+              "doc": "entry-cli",
+              "kw": ["main.py"],
+              "children": [
+                { "t": "method", "n": "cli()：5 个命令分组", "doc": "entry-cli", "kw": ["main.py"] }
+              ]
+            },
+            {
+              "t": "class",
+              "n": "pipeline.py",
+              "b": "new",
+              "doc": "entry-pipe",
+              "kw": ["pipeline.py", "Pipeline"],
+              "children": [
+                { "t": "method", "n": "process_questions()：调度在线问答", "doc": "entry-pipe", "kw": ["process_questions"] },
+                { "t": "method", "n": "process_parsed_reports()：调度离线索引", "doc": "entry-pipe", "kw": ["process_parsed_reports"] }
+              ]
+            }
+          ]
+        },
+        {
+          "t": "pkg",
+          "n": "数据准备 · 离线索引",
+          "children": [
+            {
+              "t": "class",
+              "n": "pdf_parsing.py",
+              "b": "mod",
+              "doc": "pdf",
+              "kw": ["PDFParser"],
+              "children": [
+                { "t": "method", "n": "PDFParser.parse_and_export_parallel()：多进程解析", "doc": "pdf", "kw": ["parse_and_export_parallel"] }
+              ]
+            },
+            {
+              "t": "class",
+              "n": "tables_serialization.py",
+              "b": "mod",
+              "doc": "table",
+              "kw": ["TableSerializer"],
+              "children": [
+                { "t": "method", "n": "TableSerializer.serialize_tables()：LLM 序列化表格", "doc": "table", "kw": ["TableSerializer"] }
+              ]
+            },
+            {
+              "t": "class",
+              "n": "parsed_reports_merging.py",
+              "b": "mod",
+              "doc": "merge",
+              "kw": ["PageTextPreparation"],
+              "children": [
+                { "t": "method", "n": "PageTextPreparation.process_reports()：规整为页文本", "doc": "merge", "kw": ["process_reports"] }
+              ]
+            },
+            {
+              "t": "class",
+              "n": "text_splitter.py",
+              "b": "mod",
+              "doc": "split",
+              "kw": ["TextSplitter"],
+              "children": [
+                { "t": "method", "n": "TextSplitter.split_all_reports()：按页分块", "doc": "split", "kw": ["split_all_reports"] }
+              ]
+            },
+            {
+              "t": "class",
+              "n": "ingestion.py",
+              "b": "mod",
+              "doc": "ingest",
+              "kw": ["VectorDBIngestor", "BM25Ingestor"],
+              "children": [
+                { "t": "method", "n": "VectorDBIngestor.process_reports()：建 FAISS 库", "doc": "ingest", "kw": ["VectorDBIngestor"] },
+                { "t": "method", "n": "BM25Ingestor.process_reports()：建 BM25 索引", "doc": "ingest", "kw": ["BM25Ingestor"] }
+              ]
+            }
+          ]
+        },
+        {
+          "t": "pkg",
+          "n": "检索问答 · 在线",
+          "children": [
+            {
+              "t": "class",
+              "n": "retrieval.py",
+              "b": "new",
+              "doc": "retrieval",
+              "kw": ["VectorRetriever", "HybridRetriever", "BM25Retriever"],
+              "children": [
+                { "t": "method", "n": "VectorRetriever.retrieve_by_company_name()：向量检索", "doc": "retrieval", "kw": ["retrieve_by_company_name"] },
+                { "t": "method", "n": "HybridRetriever.retrieve_by_company_name()：混合检索", "doc": "retrieval", "kw": ["HybridRetriever"] }
+              ]
+            },
+            {
+              "t": "class",
+              "n": "reranking.py",
+              "b": "new",
+              "doc": "rerank",
+              "kw": ["LLMReranker", "JinaReranker"],
+              "children": [
+                { "t": "method", "n": "LLMReranker.rerank_documents()：加权重排", "doc": "rerank", "kw": ["rerank_documents"] }
+              ]
+            },
+            {
+              "t": "class",
+              "n": "api_requests.py",
+              "b": "new",
+              "doc": "api",
+              "kw": ["APIProcessor", "BaseOpenaiProcessor"],
+              "children": [
+                { "t": "method", "n": "APIProcessor.get_answer_from_rag_context()：结构化问答", "doc": "api", "kw": ["get_answer_from_rag_context"] }
+              ]
+            },
+            {
+              "t": "class",
+              "n": "prompts.py",
+              "b": "new",
+              "doc": "prompts",
+              "kw": ["prompts"]
+            },
+            {
+              "t": "class",
+              "n": "questions_processing.py",
+              "b": "new",
+              "doc": "qa",
+              "kw": ["QuestionsProcessor"],
+              "children": [
+                { "t": "method", "n": "QuestionsProcessor.process_all_questions()：问答总入口", "doc": "qa", "kw": ["process_all_questions"] },
+                { "t": "method", "n": "_validate_page_references()：校验幻觉页码", "doc": "qa", "kw": ["_validate_page_references"] }
+              ]
+            },
+            {
+              "t": "class",
+              "n": "api_request_parallel_processor.py",
+              "b": "old",
+              "doc": "parallel",
+              "kw": ["api_request_parallel_processor"]
+            }
+          ]
+        },
+        {
+          "t": "pkg",
+          "n": "外部依赖 / 配置",
+          "children": [
+            {
+              "t": "class",
+              "n": "ollama_client.py",
+              "b": "old",
+              "doc": "ollama",
+              "kw": ["ollama_client", "create_ollama_client"]
+            },
+            {
+              "t": "class",
+              "n": "环境与启动（.env / Ollama）",
+              "b": "old",
+              "doc": "setup",
+              "kw": ["Ollama"]
+            },
+            {
+              "t": "class",
+              "n": "外部系统（Docling / FAISS / Jina）",
+              "b": "old",
+              "doc": "ext",
+              "kw": ["Docling", "FAISS"]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "docs": [
+    {
+      "id": "entry-cli",
+      "b": "新增",
+      "t": "【入口】main.py — CLI 命令入口",
+      "f": "main.py · 60 行",
+      "body": "<ul><li><b>职责</b>：用 click 定义 5 个命令，把命令行参数映射到 Pipeline 各阶段。</li><li>命令：<code>download-models / parse-pdfs / serialize-tables / process-reports / process-questions</code>。</li><li><b>关键点</b>：在数据目录内执行（<code>Path.cwd()</code> 即数据集根），用 <code>--config</code> 选 preset。</li><li><b>高频改动区</b>：新增配置 preset 时，在 <code>process-questions</code> 的 <code>--config</code> choice 列表里补名字。</li></ul>"
+    },
+    {
+      "id": "entry-pipe",
+      "b": "新增",
+      "t": "【入口】pipeline.py — 流水线编排器",
+      "f": "src/pipeline.py · 477 行",
+      "body": "<ul><li><b>职责</b>：把 PDF 解析 → 表格序列化 → 规整 → 分块 → 建索引 → 问答 串成可调度的流水线。</li><li>关键类 3 个：<code>Pipeline</code>（7 个阶段方法）、<code>PipelineConfig</code>（路径）、<code>RunConfig</code>（运行开关，~12 个 preset）。</li><li><code>process_questions()</code> 把 RunConfig 的开关透传给 <code>QuestionsProcessor</code>。</li><li><b>高频改动区</b>：调参（<code>top_n_retrieval / llm_reranking / parent_document_retrieval</code>）改 preset；路径结构改 <code>PipelineConfig</code>。</li></ul>"
+    },
+    {
+      "id": "pdf",
+      "b": "调整",
+      "t": "【数据】pdf_parsing.py — Docling PDF 解析",
+      "f": "src/pdf_parsing.py · 540 行",
+      "body": "<ul><li><b>职责</b>：数据流起点——把年报 PDF 解析成结构化 JSON。</li><li>关键类 2 个：<code>PDFParser</code>（Docling ParseV2 backend + EasyOCR + TableFormer ACCURATE）、<code>JsonReportProcessor</code>（正文/表格/图片/元信息装配）。</li><li><code>parse_and_export_parallel()</code> 多进程解析，<code>_normalize_page_sequence</code> 补齐空页。</li><li><b>高频改动区</b>：OCR/表格识别质量调优；解析失败在 <code>ConversionStatus</code> 分支处理。</li></ul>"
+    },
+    {
+      "id": "table",
+      "b": "调整",
+      "t": "【数据】tables_serialization.py — 表格序列化（可选）",
+      "f": "src/tables_serialization.py · 338 行",
+      "body": "<ul><li><b>职责</b>：把表格 + 前后文交给 LLM，序列化为 <code>information_blocks</code> 结构化块。</li><li>关键类：<code>TableSerializer</code>（继承 BaseOpenaiProcessor），异步路径走 <code>AsyncOpenaiProcessor</code>。</li><li>仅当 <code>RunConfig.use_serialized_tables=True</code> 时启用（可选分支）。</li><li><b>高频改动区</b>：<code>_get_table_context</code> 取表格前后文的块数窗口。</li></ul>"
+    },
+    {
+      "id": "merge",
+      "b": "调整",
+      "t": "【数据】parsed_reports_merging.py — 报告规整",
+      "f": "src/parsed_reports_merging.py · 435 行",
+      "body": "<ul><li><b>职责</b>：把复杂 JSON 规整为每页文本，供分块/检索/人工审查。</li><li>关键类：<code>PageTextPreparation</code>，核心 <code>_filter_blocks / _apply_formatting_rules / _render_table_group</code>。</li><li><code>export_to_markdown()</code> 导出 markdown 用于人工复核或全文检索。</li><li><b>高频改动区</b>：格式化规则（页眉页脚、编号、表格转 markdown）。</li></ul>"
+    },
+    {
+      "id": "split",
+      "b": "调整",
+      "t": "【数据】text_splitter.py — 文本分块",
+      "f": "src/text_splitter.py · 126 行",
+      "body": "<ul><li><b>职责</b>：把每页文本按 token 分块，作为向量化/检索的最小单元。</li><li>关键类：<code>TextSplitter</code>，用 langchain <code>RecursiveCharacterTextSplitter</code>。</li><li>参数：<code>chunk_size=300 / chunk_overlap=50</code>（o200k_base 编码）。</li><li><b>高频改动区</b>：chunk 大小/重叠直接影响检索粒度与召回。</li></ul>"
+    },
+    {
+      "id": "ingest",
+      "b": "调整",
+      "t": "【数据】ingestion.py — 索引构建",
+      "f": "src/ingestion.py · 110 行",
+      "body": "<ul><li><b>职责</b>：把分块文本建成向量库 / BM25 索引。</li><li>关键类 2 个：<code>VectorDBIngestor</code>（bge-m3 嵌入 + faiss <code>IndexFlatIP</code>）、<code>BM25Ingestor</code>（rank_bm25 的 BM25Okapi）。</li><li>输出 <code>*.faiss / *.pkl</code>（按 <code>sha1_name</code> 命名）。</li><li><b>高频改动区</b>：换嵌入模型需重建全部索引；嵌入批量 <code>max_batch_size=25</code>。</li></ul>"
+    },
+    {
+      "id": "retrieval",
+      "b": "测试",
+      "t": "【问答】retrieval.py — 检索",
+      "f": "src/retrieval.py · 279 行",
+      "body": "<ul><li><b>职责</b>：按公司名 + 问题检索相关文本块。</li><li>关键类 3 个：<code>VectorRetriever</code>（faiss search）、<code>BM25Retriever</code>（词法）、<code>HybridRetriever</code>（向量 + LLM 重排）。</li><li><code>return_parent_pages=True</code> 时返回整页（父文档检索）。</li><li><b>高频改动区</b>：<code>top_n</code>；维度校验——模型切换后向量维度不匹配会抛 ValueError。</li></ul>"
+    },
+    {
+      "id": "rerank",
+      "b": "测试",
+      "t": "【问答】reranking.py — 重排",
+      "f": "src/reranking.py · 156 行",
+      "body": "<ul><li><b>职责</b>：提升检索上下文相关性。</li><li>关键类 2 个：<code>LLMReranker</code>（LLM 打分 + 向量分加权融合，<code>llm_weight=0.7</code>）、<code>JinaReranker</code>（外部 Jina API，可选需 key）。</li><li><code>rerank_documents</code> 分批送 LLM，缺打分时兜底 <code>0.0</code>。</li><li><b>高频改动区</b>：<code>llm_weight / documents_batch_size</code>。</li></ul>"
+    },
+    {
+      "id": "api",
+      "b": "测试",
+      "t": "【问答】api_requests.py — LLM 交互",
+      "f": "src/api_requests.py · 647 行",
+      "body": "<ul><li><b>职责</b>：与 LLM 交互的统一出口，封装结构化输出。</li><li>关键类 2 个：<code>BaseOpenaiProcessor</code>（Ollama OpenAI 兼容 chat 接口）、<code>APIProcessor</code>（按 provider 路由，当前仅 ollama）。</li><li>结构化输出：pydantic schema 注入提示词 + <code>response_format=json_object</code> + <code>repair_json</code> 修复坏 JSON。</li><li><code>get_answer_from_rag_context</code> 按 schema（name/number/boolean/names/comparative）选 Prompt。</li><li><b>高频改动区</b>：IBM/Gemini 处理器是遗留（比赛专用，已不可用）。</li></ul>"
+    },
+    {
+      "id": "prompts",
+      "b": "测试",
+      "t": "【问答】prompts.py — 提示词与 Schema",
+      "f": "src/prompts.py · 471 行",
+      "body": "<ul><li><b>职责</b>：集中定义所有提示词 + pydantic 输出 Schema。</li><li>覆盖：RAG 问答（name/number/boolean/names）、比较、重排、schema 修复、问题重写。</li><li><code>build_system_prompt</code> 统一组装 instruction + schema + example。</li><li><b>高频改动区</b>：改输出结构 = 改 <code>AnswerSchema</code>；改引导语 = 改 <code>instruction</code>。</li></ul>"
+    },
+    {
+      "id": "qa",
+      "b": "测试",
+      "t": "【问答】questions_processing.py — 问答主逻辑",
+      "f": "src/questions_processing.py · 525 行",
+      "body": "<ul><li><b>职责</b>：问答主链路实现核心。</li><li>流程：<code>_extract_companies_from_subset</code> 提公司名 → <code>get_answer_for_company</code> 检索+问答 → <code>_validate_page_references</code> 校验幻觉页码（min 2 / max 8）→ <code>_extract_references</code> 生成 pdf_sha1+page_index → <code>_post_process_submission_answers</code> 转 0-based 提交格式。</li><li><code>process_comparative_question</code> 处理多公司比较（问题重写 + 并行 + 汇总）。</li><li><b>高频改动区</b>：引用校验规则、提交格式。</li></ul>"
+    },
+    {
+      "id": "parallel",
+      "b": "测试",
+      "t": "【问答】api_request_parallel_processor.py — 异步并发（遗留）",
+      "f": "src/api_request_parallel_processor.py · 403 行",
+      "body": "<ul><li><b>职责</b>：通用异步限流批量 API 处理器（<code>process_api_requests_from_file</code>）。</li><li>关键类：<code>StatusTracker / APIRequest</code>，管理限流、重试、速率控制。</li><li>用于表格序列化的并发结构化输出；主链路基本不走。</li><li><b>改动低频</b>：竞赛遗留代码，新功能优先复用 <code>AsyncOpenaiProcessor</code>。</li></ul>"
+    },
+    {
+      "id": "ollama",
+      "b": "复用",
+      "t": "【外部】ollama_client.py — Ollama 适配",
+      "f": "src/ollama_client.py · 61 行",
+      "body": "<ul><li><b>职责</b>：读取 <code>.env</code> 配置，封装 Ollama 客户端与嵌入。</li><li><code>get_llm_provider / get_ollama_base_url / get_ollama_model / get_ollama_embedding_model</code> 读环境变量。</li><li><code>create_ollama_client</code> 建 OpenAI 兼容客户端；<code>get_ollama_embeddings</code> POST <code>/api/embed</code>。</li><li><b>换模型 = 改 .env</b>，代码不动。</li></ul>"
+    },
+    {
+      "id": "setup",
+      "b": "复用",
+      "t": "【启动】环境与启动",
+      "f": ".env / data/test_set / data/erc2_set",
+      "body": "<ul><li><b>先跑通，再读代码</b>。</li><li>① 装依赖 + Ollama，<code>ollama pull qwen2.5:7b</code> 和 <code>ollama pull bge-m3</code>。</li><li>② <code>.env</code> 配 <code>LLM_PROVIDER=ollama / OLLAMA_BASE_URL / OLLAMA_MODEL / OLLAMA_EMBEDDING</code>。</li><li>③ 用 test_set 小数据集：<code>process-reports --config no_ser_tab</code> 建索引，再 <code>process-questions --config max_nst_o3m</code> 跑问答。</li><li>④ 换 bge-m3 后旧 FAISS 索引不能复用，需重建向量库。</li></ul>"
+    },
+    {
+      "id": "ext",
+      "b": "复用",
+      "t": "【外部】外部系统依赖",
+      "f": "Docling / FAISS / Jina / tiktoken / rank_bm25",
+      "body": "<ul><li><b>Docling</b>：PDF 结构化解析（GPU 加速显著）。</li><li><b>faiss</b>：向量检索（IndexFlatIP 内积即余弦）。</li><li><b>Ollama</b>：本地推理（qwen2.5:7b）与嵌入（bge-m3）。</li><li><b>Jina API</b>：可选外部重排（需 JINA_API_KEY）。</li><li><b>tiktoken / rank_bm25</b>：计 token / 词法检索。</li></ul>"
+    }
+  ],
+  "tour": [
+    {
+      "tab": "over",
+      "tree": null,
+      "sl": "全景鸟瞰",
+      "title": "第 1 站 · 全景鸟瞰",
+      "text": "这是 RAG Challenge 2 的 4 层架构：<b>入口/编排</b>（main.py、pipeline.py）→ <b>数据准备</b>（PDF 解析到建索引）→ <b>检索问答</b>（检索→重排→LLM→校验）→ <b>外部依赖</b>。绿色 = 每次问答必经的核心链路，蓝色 = 外部系统，橙色 = 可选分支。点击任意模块直达。"
+    },
+    {
+      "tab": "over",
+      "tree": "环境与启动",
+      "sl": "环境启动",
+      "title": "第 2 站 · 先跑起来",
+      "text": "新人第一件事是<b>跑通</b>：装 Ollama 并 pull qwen2.5:7b 和 bge-m3，配好 <code>.env</code>，用 <code>data/test_set</code> 小数据集执行 <code>process-reports</code> 再 <code>process-questions</code>。右栏「环境与启动」卡有完整步骤。"
+    },
+    {
+      "tab": "flow",
+      "tree": "pdf_parsing",
+      "sl": "解析 PDF",
+      "title": "第 3 站 · 数据起点：PDF 解析",
+      "text": "切到流程图：数据流从 <code>pdf_parsing.PDFParser</code> 开始，Docling + EasyOCR + TableFormer 把年报 PDF 解析成结构化 JSON。这是最耗 GPU 的一步。"
+    },
+    {
+      "tab": "flow",
+      "tree": "text_splitter",
+      "sl": "规整与分块",
+      "title": "第 4 站 · 规整与分块",
+      "text": "<code>PageTextPreparation</code> 把 JSON 规整为每页文本，<code>TextSplitter</code> 按 300 token 分块。表格序列化是可选分支（<code>use_serialized_tables</code> 控制）。"
+    },
+    {
+      "tab": "flow",
+      "tree": "ingestion",
+      "sl": "建索引",
+      "title": "第 5 站 · 构建索引",
+      "text": "<code>VectorDBIngestor</code> 用 bge-m3 嵌入 + faiss 建向量库，<code>BM25Ingestor</code> 建词法索引。产物 <code>*.faiss / *.pkl</code> 供在线检索消费。换嵌入模型必须重建全部索引。"
+    },
+    {
+      "tab": "seq",
+      "tree": "questions_processing",
+      "sl": "问答入口",
+      "title": "第 6 站 · 一次问答的生命周期",
+      "text": "切到时序图：一次提问从 <code>QuestionsProcessor.process_all_questions</code> 进入，先 <code>_extract_companies_from_subset</code> 提取公司名，再逐题处理。这是在线问答的编排中心。"
+    },
+    {
+      "tab": "seq",
+      "tree": "retrieval",
+      "sl": "检索与重排",
+      "title": "第 7 站 · 检索与重排",
+      "text": "<code>VectorRetriever</code> 把问题转向量后 faiss 搜索，命中公司报告的 top_n 块；启用 <code>llm_reranking</code> 时 <code>HybridRetriever</code> 再用 LLM 打分加权融合，提升上下文相关性。"
+    },
+    {
+      "tab": "seq",
+      "tree": "api_requests",
+      "sl": "LLM 问答",
+      "title": "第 8 站 · 结构化问答",
+      "text": "<code>APIProcessor.get_answer_from_rag_context</code> 按 schema 选 Prompt + pydantic Schema，把 RAG 上下文交给 Ollama 做结构化输出（step_by_step_analysis / final_answer / relevant_pages）。"
+    },
+    {
+      "tab": "seq",
+      "tree": "_validate_page_references",
+      "sl": "引用校验",
+      "title": "第 9 站 · 引用校验与提交",
+      "text": "收尾：<code>_validate_page_references</code> 剔除 LLM 幻觉的页码（保底补 top 页），<code>_extract_references</code> 生成 pdf_sha1+page_index，<code>_post_process_submission_answers</code> 转 0-based 提交格式。一次问答走完。"
+    },
+    {
+      "tab": "over",
+      "tree": null,
+      "sl": "自由探索",
+      "title": "🎉 导览完成",
+      "text": "现在自由探索：左侧树 / 中间图 / 右侧说明卡点击任何一处都会三方联动并画线。想要深入某环节，读对应卡的「高频改动区」——那是这个模块最容易改的地方。导览可随时从顶栏「🧭 跟流程走一遍」重来。"
+    }
+  ]
+}

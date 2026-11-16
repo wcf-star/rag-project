@@ -1,0 +1,1360 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>xfg-2-1 开发串联全景图 · 对比基线 xfg-1-3</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --border: #e4e7ec;
+    --border-2: #d3d8e0;
+    --text: #1f2430;
+    --text-2: #5c6370;
+    --text-3: #99a1ad;
+    --accent: #3574f0;
+    --accent-deep: #2456c4;
+    --accent-soft: #e9f0fe;
+    --green: #1a9e5c;
+    --green-deep: #0b7a44;
+    --green-soft: #e6f6ec;
+    --amber: #c07a0a;
+    --amber-soft: #fdf3e0;
+    --gray: #8a93a3;
+    --gray-soft: #f1f3f6;
+    --red: #d64550;
+    --purple: #7a5af8;
+    --orange: #f0842c;
+    --shadow-sm: 0 1px 2px rgba(16,24,40,.05);
+    --shadow-md: 0 2px 10px rgba(16,24,40,.08);
+    --tree-w: 336px;
+    --doc-w: 448px;
+    --mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { font-family: var(--sans); background: var(--bg); color: var(--text);
+    font-size: 13px; overflow: hidden; }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #d0d5dd; border-radius: 8px;
+    border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: #b9c0ca; border: 2px solid transparent;
+    background-clip: content-box; }
+
+  /* ══════════ 顶栏 ══════════ */
+  header {
+    height: 54px; display: flex; align-items: center; gap: 13px; padding: 0 18px;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-sm); z-index: 60; position: relative;
+  }
+  .logo {
+    width: 32px; height: 32px; border-radius: 8px; flex: none;
+    background: linear-gradient(135deg, #3574f0 0%, #6d9bf7 100%);
+    display: flex; align-items: center; justify-content: center; color: #fff; font-size: 16px;
+    box-shadow: 0 2px 6px rgba(53,116,240,.35);
+  }
+  .title-block h1 { font-size: 15px; font-weight: 700; letter-spacing: .2px; line-height: 1.2; }
+  .title-block p { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+  .title-block p b { color: var(--green-deep); font-weight: 600; }
+  .title-block p i { font-style: normal; color: #c2c8d1; margin: 0 4px; }
+  .stats { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+  .stat { display: flex; align-items: baseline; gap: 5px; padding: 4px 11px; white-space: nowrap;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 7px; }
+  .stat .num { font-family: var(--mono); font-size: 12.5px; font-weight: 700; color: var(--green-deep); }
+  .stat .num.amber { color: var(--amber); }
+  .stat .lbl { font-size: 10.5px; color: var(--text-3); }
+  .hbtn {
+    font-size: 12px; padding: 6px 14px; border-radius: 7px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text-2);
+    transition: all .15s; white-space: nowrap; font-family: var(--sans);
+  }
+  .hbtn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .hbtn.primary { background: var(--accent); border-color: var(--accent); color: #fff;
+    font-weight: 600; box-shadow: 0 2px 6px rgba(53,116,240,.3); }
+  .hbtn.primary:hover { background: var(--accent-deep); border-color: var(--accent-deep); color: #fff; }
+  .hbtn .key { opacity: .55; font-size: 10px; margin-left: 3px; }
+
+  /* ══════════ 三栏舞台 ══════════ */
+  .stage {
+    position: relative; display: grid;
+    grid-template-columns: var(--tree-w) minmax(0, 1fr) var(--doc-w);
+    height: calc(100% - 54px);
+  }
+  #linkLayer {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 50; overflow: visible;
+  }
+  #linkLayer path.lk { fill: none; stroke: url(#lkgrad); stroke-width: 2.2;
+    stroke-linecap: round; stroke-dasharray: 6 6; animation: dashmove 1.1s linear infinite;
+    filter: drop-shadow(0 1px 2px rgba(53,116,240,.25)); }
+  #linkLayer circle.src-dot { fill: var(--accent); stroke: #fff; stroke-width: 1.6; }
+  @keyframes dashmove { to { stroke-dashoffset: -12; } }
+
+  /* ══════════ 左侧：IDEA 风格工程树 ══════════ */
+  #treePanel { background: var(--panel); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden; }
+  .tree-head { flex: none; padding: 10px 12px 9px; border-bottom: 1px solid var(--border);
+    background: var(--panel); }
+  .tree-title { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 700;
+    color: var(--text-2); letter-spacing: .8px; text-transform: uppercase; }
+  .tree-title .proj { font-family: var(--mono); font-size: 10px; letter-spacing: 0;
+    text-transform: none; color: var(--text-3); font-weight: 400;
+    background: var(--gray-soft); border-radius: 5px; padding: 2px 7px; }
+  .tree-search { display: flex; align-items: center; gap: 6px; margin-top: 8px;
+    border: 1px solid var(--border); border-radius: 7px; padding: 4.5px 9px;
+    background: var(--bg); transition: all .15s; }
+  .tree-search:focus-within { border-color: var(--accent); background: #fff;
+    box-shadow: 0 0 0 3px rgba(53,116,240,.12); }
+  .tree-search svg { flex: none; color: var(--text-3); }
+  .tree-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+    font-size: 12px; color: var(--text); font-family: var(--sans); }
+  .tree-search input::placeholder { color: #b3bac4; }
+  .tree-search .cnt { flex: none; font-family: var(--mono); font-size: 9.5px; color: var(--text-3); }
+  .tree-tools { display: flex; gap: 5px; margin-top: 8px; }
+  .ttool { flex: 1; text-align: center; font-size: 10.5px; padding: 4px 0; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text-2);
+    cursor: pointer; transition: all .12s; white-space: nowrap; }
+  .ttool:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .ttool:active { transform: scale(.97); }
+
+  #tree { flex: 1; overflow: auto; padding: 6px 6px 20px; }
+  .tnode {
+    display: flex; align-items: center; gap: 5px; height: 25px; padding: 0 7px;
+    border-radius: 5px; cursor: pointer; user-select: none; color: var(--text);
+    line-height: 1; position: relative; font-size: 12px; transition: background .1s;
+  }
+  .tnode:hover { background: #eef3fa; }
+  .tnode.active { background: #d6e5fb; box-shadow: inset 0 0 0 1px #9dbdf2; }
+  .tnode.active .name { font-weight: 600; color: #17407e; }
+  .chev { flex: none; width: 14px; height: 14px; color: #a2a9b3;
+    display: flex; align-items: center; justify-content: center;
+    transition: transform .18s ease, color .12s; border-radius: 3px; }
+  .chev:hover { background: #dce8fa; color: var(--accent); }
+  .chev.hidden { visibility: hidden; pointer-events: none; }
+  .tbranch.closed > .tnode .chev { transform: rotate(-90deg); }
+  .tbranch { position: relative; }
+  .tbranch.fhide { display: none; }
+  .tkids-wrap { position: relative; margin-left: 12px; padding-left: 7px;
+    display: grid; grid-template-rows: 1fr; transition: grid-template-rows .2s ease; }
+  .tkids-wrap::before { content: ''; position: absolute; left: 3px; top: 0; bottom: 4px;
+    width: 1px; background: linear-gradient(180deg, #dce1e9 60%, #f0f2f5); }
+  .tbranch.closed > .tkids-wrap { grid-template-rows: 0fr; }
+  .tkids-inner { overflow: hidden; min-height: 0; }
+  .kico { flex: none; width: 15px; height: 15px; display: inline-flex;
+    align-items: center; justify-content: center;
+    filter: drop-shadow(0 .5px .5px rgba(20,30,50,.12)); }
+  .tnode .name { flex: 1 1 auto; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  .tnode .name.mono { font-family: var(--mono); font-size: 10.5px; letter-spacing: -.1px; }
+  .tnode .name.m-new { color: var(--green-deep); }
+  .tnode .name.mod-name { color: var(--amber); }
+  .tnode.dim .name, .tnode.dim .name.mono { color: #a5acb6; }
+  .tnode .name mark { background: #ffe58a; color: inherit; border-radius: 2px; padding: 0 1px; }
+  .tnode .kids-n { flex: none; font-family: var(--mono); font-size: 8.5px; color: #a8afba;
+    background: var(--gray-soft); border-radius: 8px; padding: 1.5px 6px; display: none; }
+  .tbranch.closed > .tnode .kids-n { display: inline-block; }
+  .badge { flex: none; font-size: 9px; font-weight: 600; padding: 1.5px 5.5px;
+    border-radius: 4px; line-height: 1.25; letter-spacing: .5px;
+    border: 1px solid transparent; }
+  .badge.new { color: var(--green-deep); border-color: #b7e3c9; background: #f0faf4; }
+  .badge.mod { color: var(--amber); border-color: #eed7ae; background: #fdf8ec; }
+  .badge.old { color: #97a0ab; border-color: #d9dde3; background: #f7f8fa; }
+  .tree-foot { flex: none; display: flex; align-items: center; gap: 12px;
+    padding: 7px 14px; border-top: 1px solid var(--border); background: var(--bg);
+    font-size: 10.5px; color: var(--text-2); }
+  .tree-foot b { font-family: var(--mono); font-weight: 700; }
+  .tree-foot .fn { display: inline-flex; align-items: center; gap: 5px; }
+  .tree-foot .fdot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+
+  /* ══════════ 中间：图区 ══════════ */
+  #center { display: flex; flex-direction: column; overflow: hidden; background: #fafbfd; }
+  .tabs { display: flex; align-items: center; gap: 2px; padding: 0 14px; flex: none;
+    background: var(--panel); border-bottom: 1px solid var(--border); }
+  .tab { padding: 10px 15px 8px; cursor: pointer; font-size: 12.5px; color: var(--text-2);
+    border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color .15s; }
+  .tab:hover { color: var(--text); }
+  .tab.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .zctl { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+  .zbtn { font-size: 11px; padding: 3.5px 10px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--text-2); cursor: pointer; transition: all .12s;
+    white-space: nowrap; font-family: var(--mono); }
+  .zbtn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .zsep { width: 1px; height: 16px; background: var(--border); margin: 0 3px; }
+  .zval { min-width: 40px; text-align: right; font-family: var(--mono); font-size: 10.5px;
+    color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+  /* 主线导航条 */
+  .rail { display: flex; align-items: center; gap: 10px; padding: 7px 14px; flex: none;
+    background: var(--panel); border-bottom: 1px solid var(--border); }
+  .rail-cap { flex: none; font-size: 10.5px; font-weight: 700; color: var(--accent);
+    letter-spacing: .5px; white-space: nowrap; }
+  .rail-steps { display: flex; align-items: center; gap: 5px; overflow-x: auto; flex: 1;
+    padding: 2px 0; scrollbar-width: none; }
+  .rail-steps::-webkit-scrollbar { display: none; }
+  .rstep { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px 3px 4px;
+    border-radius: 999px; border: 1px solid var(--border); background: #fff;
+    font-size: 11px; color: var(--text-2); cursor: pointer; white-space: nowrap;
+    transition: all .15s; flex: none; }
+  .rstep:hover { border-color: var(--accent); color: var(--accent); }
+  .rstep .rs-n { width: 16px; height: 16px; border-radius: 50%; flex: none;
+    background: var(--gray-soft); color: var(--text-2); font-size: 9.5px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; font-family: var(--mono);
+    transition: all .15s; }
+  .rstep.cur { border-color: var(--accent); background: var(--accent-soft);
+    color: var(--accent-deep); font-weight: 600;
+    box-shadow: 0 1px 4px rgba(53,116,240,.18); }
+  .rstep.cur .rs-n { background: var(--accent); color: #fff; }
+  .rstep.done .rs-n { background: #d3e3fb; color: var(--accent); }
+  .rail-hint { flex: none; font-size: 10px; color: var(--text-3); white-space: nowrap; }
+
+  /* 图例 */
+  .legend { display: flex; align-items: center; gap: 14px; padding: 6px 20px; flex: none;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    font-size: 10.5px; color: var(--text-3); white-space: nowrap; overflow-x: auto; }
+  .legend i { font-style: normal; display: inline-flex; align-items: center; gap: 5px; }
+  .legend .dot { width: 9px; height: 9px; border-radius: 3px; display: inline-block; flex: none; }
+  .legend .lg-esc { margin-left: auto; color: #b6bdc7; }
+
+  .diagram-wrap { flex: 1; overflow: auto; padding: 22px 24px 44px; display: none;
+    background-image: radial-gradient(var(--border-2) 1px, transparent 1px);
+    background-size: 22px 22px; cursor: grab; }
+  .diagram-wrap.on { display: block; }
+  .diagram-wrap.panning { cursor: grabbing; user-select: none; }
+  .diagram-wrap.panning * { cursor: grabbing !important; }
+  .diagram-wrap details.src { cursor: auto; }
+  .diagram-wrap details.src pre { cursor: text; }
+  .mermaid-box { background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 26px; min-width: fit-content;
+    box-shadow: var(--shadow-md); position: relative; }
+  .mermaid-box svg { display: block; height: auto; }
+  details.src { margin-top: 14px; max-width: 900px; }
+  details.src summary { cursor: pointer; font-size: 11.5px; color: var(--text-3); }
+  details.src summary:hover { color: var(--text-2); }
+  details.src pre {
+    margin-top: 8px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px; font-family: var(--mono); font-size: 11px;
+    line-height: 1.6; overflow: auto; color: #3c434d; box-shadow: var(--shadow-sm);
+  }
+  .box-err { padding: 40px; color: var(--red); }
+
+  /* 联动高亮：主目标（实心橙）与次目标（虚线呼吸） */
+  .mermaid-box g.hl > rect, .mermaid-box g.hl > polygon, .mermaid-box g.hl > circle, .mermaid-box g.hl > ellipse {
+    fill: #fff0e6 !important; stroke: var(--orange) !important; stroke-width: 2.6px !important; }
+  .mermaid-box text.hl-text, .mermaid-box g.hl text { fill: #d1490b !important; font-weight: 700 !important; }
+  .mermaid-box g.hl foreignObject div, .mermaid-box g.hl foreignObject span { color: #d1490b !important; font-weight: 700 !important; }
+  .mermaid-box g.hl.actor > rect.basic.label-container {
+    fill: #ffdfc8 !important; stroke: var(--orange) !important; stroke-width: 3px !important; }
+  .mermaid-box g.hl2 > rect, .mermaid-box g.hl2 > polygon, .mermaid-box g.hl2 > circle, .mermaid-box g.hl2 > ellipse,
+  .mermaid-box g.hl2.actor > rect.basic.label-container {
+    stroke: #f0a56c !important; stroke-width: 2px !important;
+    stroke-dasharray: 5 4 !important;
+    animation: hlpulse 1.6s ease-in-out infinite; }
+  @keyframes hlpulse { 0%,100% { filter: drop-shadow(0 0 0 rgba(240,132,44,0)); }
+    50% { filter: drop-shadow(0 0 4px rgba(240,132,44,.55)); } }
+
+  .load-msg { text-align: center; color: var(--text-3); padding: 70px 0; font-size: 12.5px; }
+  .spin { width: 22px; height: 22px; margin: 0 auto 12px; border-radius: 50%;
+    border: 2.5px solid var(--border-2); border-top-color: var(--accent);
+    animation: rot .8s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+
+  /* ══════════ 右侧：变更说明 ══════════ */
+  #docPanel { background: var(--bg); border-left: 1px solid var(--border); overflow: hidden;
+    display: flex; flex-direction: column; }
+  .doc-head { flex: none; padding: 10px 16px 9px; border-bottom: 1px solid var(--border);
+    background: var(--panel); }
+  .doc-head .cap { font-size: 10px; font-weight: 700; color: var(--text-3);
+    letter-spacing: 1.2px; text-transform: uppercase; }
+  .doc-chips { display: flex; gap: 5px; margin-top: 8px; }
+  .dchip { font-size: 10.5px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text-2);
+    transition: all .12s; white-space: nowrap; }
+  .dchip:hover { border-color: var(--accent); color: var(--accent); }
+  .dchip.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  #docs { flex: 1; overflow: auto; padding: 12px 14px 30px; }
+  .doc { border: 1px solid var(--border); border-radius: 10px; padding: 13px 15px 12px;
+    margin-bottom: 11px; background: var(--panel); box-shadow: var(--shadow-sm);
+    position: relative; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+  .doc::before { content: ''; position: absolute; left: -1px; top: 12px; bottom: 12px;
+    width: 3px; border-radius: 3px; background: var(--dc, var(--border-2)); }
+  .doc:hover { box-shadow: var(--shadow-md); border-color: var(--border-2); }
+  .doc.active { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(53,116,240,.16), var(--shadow-md);
+    scroll-margin-top: 8px; }
+  .doc h3 { font-size: 13px; font-weight: 650; margin-bottom: 4px; display: flex;
+    align-items: center; gap: 8px; line-height: 1.35; }
+  .doc .file { font-family: var(--mono); font-size: 10px; color: var(--accent-deep);
+    background: var(--accent-soft); border-radius: 6px; padding: 3px 8px;
+    margin-bottom: 9px; word-break: break-all; line-height: 1.5; }
+  .doc ul { padding-left: 17px; color: #3c434d; line-height: 1.72; font-size: 12.2px; }
+  .doc ul li { margin-bottom: 4px; }
+  .doc ul li::marker { color: var(--dc, var(--text-3)); }
+  .doc ul li b { color: var(--text); }
+  .doc code { font-family: var(--mono); font-size: 11px; background: var(--gray-soft);
+    border: 1px solid var(--border); padding: 1px 5px; border-radius: 4px; color: #953800; }
+  .doc h3 .pin { margin-left: auto; flex: none; font-size: 9.5px; font-weight: 500;
+    color: #b6bdc7; letter-spacing: .3px; opacity: 0; transition: opacity .15s; white-space: nowrap; }
+  .doc:hover h3 .pin { opacity: 1; }
+
+  /* ══════════ 导览卡片 ══════════ */
+  .tour {
+    position: fixed; left: 50%; bottom: 18px; transform: translate(-50%, 16px);
+    width: min(560px, calc(100vw - 48px)); z-index: 90;
+    background: #fff; border: 1px solid var(--border-2); border-radius: 14px;
+    box-shadow: 0 12px 40px rgba(16,24,40,.18), 0 2px 8px rgba(16,24,40,.08);
+    padding: 14px 18px 12px; opacity: 0; pointer-events: none;
+    transition: opacity .25s, transform .25s;
+  }
+  .tour.show { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+  .tour .t-top { display: flex; align-items: center; gap: 8px; }
+  .tour .t-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 1px; color: var(--accent);
+    text-transform: uppercase; }
+  .tour .t-num { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }
+  .tour .t-close { flex: none; width: 22px; height: 22px; border-radius: 6px; display: flex;
+    align-items: center; justify-content: center; color: var(--text-3); cursor: pointer;
+    font-size: 13px; line-height: 1; }
+  .tour .t-close:hover { background: var(--gray-soft); color: var(--text); }
+  .tour h4 { font-size: 14px; font-weight: 700; margin: 6px 0 4px; }
+  .tour p { font-size: 12.2px; color: var(--text-2); line-height: 1.65; }
+  .tour .t-dots { display: flex; gap: 5px; margin: 10px 0 2px; }
+  .tour .t-dots i { width: 100%; height: 3px; border-radius: 2px; background: #e7eaf0; cursor: pointer;
+    transition: background .2s; flex: 1; }
+  .tour .t-dots i.done { background: #b9d3f2; }
+  .tour .t-dots i.cur { background: var(--accent); }
+  .tour .t-ctrl { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+  .tour .t-btn { font-size: 12px; padding: 6px 16px; border-radius: 7px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text-2); transition: all .12s;
+    font-family: var(--sans); }
+  .tour .t-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .tour .t-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff;
+    box-shadow: 0 2px 6px rgba(53,116,240,.3); }
+  .tour .t-btn.primary:hover { background: var(--accent-deep); color: #fff; }
+  .tour .t-hintline { font-size: 10.5px; color: var(--text-3); margin-left: auto; }
+
+  /* ══════════ 欢迎浮层 ══════════ */
+  .welcome-mask { position: fixed; inset: 0; z-index: 100; background: rgba(20,26,36,.42);
+    backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center;
+    transition: opacity .3s; }
+  .welcome-mask.hide { opacity: 0; pointer-events: none; }
+  .welcome { width: min(480px, calc(100vw - 40px)); background: #fff; border-radius: 16px;
+    box-shadow: 0 24px 64px rgba(16,24,40,.3); padding: 0 28px 22px; text-align: left;
+    border: 1px solid var(--border); overflow: hidden; }
+  .welcome .w-hero { margin: 0 -28px; padding: 22px 28px 18px;
+    background: linear-gradient(135deg, #eaf1fe 0%, #f4f8ff 55%, #e6f6ec 100%);
+    border-bottom: 1px solid var(--border); }
+  .welcome .w-logo { width: 44px; height: 44px; border-radius: 11px;
+    background: linear-gradient(135deg, #3574f0, #6d9bf7); display: flex; align-items: center;
+    justify-content: center; font-size: 22px; color: #fff; box-shadow: 0 4px 14px rgba(53,116,240,.4);
+    margin-bottom: 12px; }
+  .welcome h2 { font-size: 18px; font-weight: 750; }
+  .welcome .w-sub { font-size: 12px; color: var(--text-2); margin-top: 4px; line-height: 1.6; }
+  .welcome .w-sub b { color: var(--green-deep); }
+  .welcome ul { list-style: none; display: grid; gap: 8px; margin: 16px 0 18px; }
+  .welcome ul li { display: flex; gap: 9px; font-size: 12.2px; color: var(--text-2); line-height: 1.55; }
+  .welcome ul li .wi { flex: none; width: 20px; height: 20px; border-radius: 6px; background: var(--accent-soft);
+    color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+  .welcome .w-btns { display: flex; gap: 10px; }
+  .welcome .w-btn { flex: 1; text-align: center; font-size: 13px; padding: 9px 0; border-radius: 9px;
+    cursor: pointer; border: 1px solid var(--border); background: var(--panel); color: var(--text-2);
+    transition: all .12s; }
+  .welcome .w-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .welcome .w-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff;
+    font-weight: 600; box-shadow: 0 3px 10px rgba(53,116,240,.35); }
+  .welcome .w-btn.primary:hover { background: var(--accent-deep); }
+
+  /* 导览模式时联动高亮更强 */
+  body.touring .tnode.active { background: #c8dffa; box-shadow: inset 0 0 0 1.5px #86b0ec; }
+  body.touring .rstep.cur { transform: scale(1.04); }
+</style>
+</head>
+<body>
+<!-- MAP-META：元信息不再手改 HTML——统一放在数据区 MAP_META 里，启动时自动注入 -->
+<header>
+  <div class="logo">🗺</div>
+  <div class="title-block">
+    <h1>xfg-2-1 开发串联全景图</h1>
+    <p>基线 <b>xfg-1-3</b><i>→</i>本节 <b>xfg-2-1</b> · LLM 端口-适配器链路</p>
+  </div>
+  <div class="stats">
+    <div class="stat"><span class="num">20</span><span class="lbl">新增文件</span></div>
+    <div class="stat"><span class="num amber">4</span><span class="lbl">调整文件</span></div>
+    <div class="stat"><span class="num">+3278</span><span class="lbl">/ -1 行</span></div>
+  </div>
+  <button class="hbtn primary" id="tourBtn">📖 跟流程走一遍</button>
+  <button class="hbtn" id="clearBtn">清除联动 <span class="key">Esc</span></button>
+</header>
+
+<div class="stage" id="stage">
+  <aside id="treePanel">
+    <div class="tree-head">
+      <div class="tree-title">Project <span class="proj">cn.xiaofuge.deepseek.harness</span></div>
+      <div class="tree-search">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.6"/><path d="M10.6 10.6 L14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <input id="treeSearch" placeholder="搜索类 / 方法…" spellcheck="false">
+        <span class="cnt" id="searchCount"></span>
+      </div>
+      <div class="tree-tools">
+        <div class="ttool" id="btnExpandAll">⊞ 展开全部</div>
+        <div class="ttool" id="btnCollapseAll">⊟ 折叠全部</div>
+        <div class="ttool" id="btnCollapseMethods">⌄ 折叠到类</div>
+      </div>
+    </div>
+    <div id="tree"></div>
+    <div class="tree-foot" id="treeFoot"></div>
+  </aside>
+
+  <main id="center">
+    <div class="tabs">
+      <div class="tab on" data-tab="over">🗺 全景图</div>
+      <div class="tab" data-tab="seq">⏱ 时序图</div>
+      <div class="tab" data-tab="flow">🔀 流程图</div>
+      <div class="zctl">
+        <button class="zbtn" data-z="fit" title="缩放到适配面板宽度">⤢ 适配</button>
+        <button class="zbtn" data-z="100" title="恢复 100% 原始尺寸">100%</button>
+        <div class="zsep"></div>
+        <button class="zbtn" data-z="in" title="放大">＋</button>
+        <button class="zbtn" data-z="out" title="缩小">－</button>
+        <span class="zval" id="zoomVal" title="当前缩放比例（滚轮可连续缩放）">100%</span>
+      </div>
+    </div>
+    <div class="rail">
+      <span class="rail-cap">🧭 跟着流程走</span>
+      <div class="rail-steps" id="railSteps"></div>
+      <span class="rail-hint">← → 切站 · Esc 清除</span>
+    </div>
+    <div class="legend">
+      <i><span class="dot" style="background:#e6f6ec;border:1.5px solid #17a45f"></span>🆕 新增</i>
+      <i><span class="dot" style="background:#f1f3f6;border:1.5px dashed #9aa3af"></span>1-3 复用</i>
+      <i><span class="dot" style="background:#eaf1fe;border:1.5px solid #3574f0"></span>外部网关</i>
+      <i><span class="dot" style="background:#fff4e0;border:1.5px solid #e6a23c"></span>异常 / 兜底</i>
+      <i><span class="dot" style="background:#fff0e6;border:1.5px solid #f0842c"></span>联动目标</i>
+      <span class="lg-esc">按住拖拽平移 · 滚轮缩放（Shift+滚轮 滚动） · 点击任意一处三方联动</span>
+    </div>
+    <div class="diagram-wrap on" id="wrap-over">
+      <div class="mermaid-box" id="box-over">
+        <div class="load-msg"><div class="spin"></div>正在渲染全景图…</div>
+      </div>
+      <details class="src"><summary>查看全景图 Mermaid 源码</summary><pre id="src-over"></pre></details>
+    </div>
+    <div class="diagram-wrap" id="wrap-seq">
+      <div class="mermaid-box" id="box-seq">
+        <div class="load-msg"><div class="spin"></div>正在渲染时序图…</div>
+      </div>
+      <details class="src"><summary>查看时序图 Mermaid 源码</summary><pre id="src-seq"></pre></details>
+    </div>
+    <div class="diagram-wrap" id="wrap-flow">
+      <div class="mermaid-box" id="box-flow">
+        <div class="load-msg"><div class="spin"></div>正在渲染流程图…</div>
+      </div>
+      <details class="src"><summary>查看流程图 Mermaid 源码</summary><pre id="src-flow"></pre></details>
+    </div>
+  </main>
+
+  <aside id="docPanel">
+    <div class="doc-head">
+      <div class="cap">变更说明 · vs xfg-1-3</div>
+      <div class="doc-chips" id="docChips">
+        <span class="dchip on" data-f="all">全部</span>
+        <span class="dchip" data-f="新增">新增</span>
+        <span class="dchip" data-f="调整">调整</span>
+        <span class="dchip" data-f="测试">测试</span>
+        <span class="dchip" data-f="复用">复用</span>
+      </div>
+    </div>
+    <div id="docs"></div>
+  </aside>
+
+  <svg id="linkLayer">
+    <defs>
+      <linearGradient id="lkgrad" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#6d9bf7"/>
+        <stop offset="1" stop-color="#3574f0"/>
+      </linearGradient>
+      <marker id="lkarrow" viewBox="0 0 10 10" refX="8.5" refY="5"
+        markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+        <path d="M 0 1.5 L 9 5 L 0 8.5 Z" fill="#3574f0"/>
+      </marker>
+    </defs>
+  </svg>
+</div>
+
+<!-- 导览卡片 -->
+<div class="tour" id="tour">
+  <div class="t-top">
+    <span class="t-eyebrow">开发导览</span>
+    <span class="t-num" id="tourNum"></span>
+    <span class="t-close" id="tourClose" title="退出导览">✕</span>
+  </div>
+  <h4 id="tourTitle"></h4>
+  <p id="tourText"></p>
+  <div class="t-dots" id="tourDots"></div>
+  <div class="t-ctrl">
+    <button class="t-btn" id="tourPrev">← 上一站</button>
+    <button class="t-btn primary" id="tourNext">下一站 →</button>
+    <span class="t-hintline" id="tourHint"></span>
+  </div>
+</div>
+
+<!-- 欢迎浮层 -->
+<div class="welcome-mask" id="welcomeMask">
+  <div class="welcome">
+    <div class="w-hero">
+      <div class="w-logo">🗺</div>
+      <h2>xfg-2-1 开发串联全景图</h2>
+      <div class="w-sub">基线 <b>xfg-1-3</b> → 本节 <b>xfg-2-1</b> · LLM 端口-适配器链路 · 新增 20 文件 / +3278 行</div>
+    </div>
+    <ul>
+      <li><span class="wi">🧭</span>点上方<b>「跟着流程走」</b>导航条，8 站从装配走到组装，每站自动定位联动</li>
+      <li><span class="wi">🔍</span>左侧工程树支持<b>搜索过滤</b>，像 IDEA 一样展开 / 折叠 / 双击</li>
+      <li><span class="wi">🔗</span>自由探索：树 / 图 / 右侧说明卡<b>三方点击联动</b>，连线直达</li>
+    </ul>
+    <div class="w-btns">
+      <div class="w-btn primary" id="wStart">🧭 开始导览</div>
+      <div class="w-btn" id="wFree">自由浏览</div>
+    </div>
+  </div>
+</div>
+
+<script src="./vendor/mermaid.min.js"></script>
+<script type="module">
+/* mermaid 已本地打包（vendor/mermaid.min.js，UMD 全局变量），无需 CDN */
+const mermaid = window.mermaid;
+
+/* 页签清单：由 DOM 自动发现，裁剪/新增图页只需增删 .tab 与对应 wrap，引擎零改动 */
+const TABS = [...document.querySelectorAll('.tab')].map(t => t.dataset.tab);
+
+/* ════════ MAP-DATA-START ════════ */
+/* 由 scripts/build-map.mjs 从 rag-challenge-2-onboarding.json 生成于 2026-11-15；数据规范见 references/data-spec.md */
+
+/* MAP_META：全部元信息。slug 派生 localStorage 欢迎层 key，每张图必须唯一 */
+const MAP_META = {"title":"RAG Challenge 2 · 架构 Onboarding 全景图","h1":"RAG Challenge 2 架构总览","subtitle":"冠军 RAG 方案 · 一次问答请求的完整生命周期 · \u003cb>4 层\u003c/b> / 13 模块 / 6 流水线阶段","stats":[{"num":"13","lbl":"核心模块"},{"num":"6","lbl":"流水线阶段","amber":true},{"num":"~4.6k","lbl":"行 Python"}],"project":"RAG-Challenge-2 / src","docCap":"模块说明 · 分层导读","slug":"rag-challenge-2-onboarding","welcomeSub":"一次问答请求的完整生命周期 · \u003cb>4 层\u003c/b> 架构 · 13 模块 · 本地 Ollama","welcomeItems":[{"icon":"🧭","html":"点上方\u003cb>「跟着流程走」\u003c/b>，10 站从环境启动走到提交答案，覆盖一次问答的完整生命周期"},{"icon":"🔍","html":"左侧工程树按 \u003cb>4 层\u003c/b> 组织（入口 / 数据准备 / 检索问答 / 外部），支持搜索与展开折叠"},{"icon":"🔗","html":"右侧说明卡徽标颜色 = 分层：\u003cb>绿=入口 · 橙=数据准备 · 紫=检索问答 · 灰=外部/配置\u003c/b>；三栏点击联动"}]};
+
+/* ══════════════ Mermaid 图源 ══════════════ */
+const OVER_SRC = `
+flowchart LR
+    classDef newc fill:#e6f6ec,stroke:#17a45f,stroke-width:2px,color:#0b5c3a
+    classDef oldc fill:#f1f3f6,stroke:#9aa3af,stroke-width:1.2px,stroke-dasharray:5 3,color:#5a6068
+    classDef extc fill:#eaf1fe,stroke:#3574f0,stroke-width:1.6px,color:#1c3257
+    classDef warnc fill:#fff4e0,stroke:#e6a23c,stroke-width:1.6px,color:#7a4101
+
+    subgraph ENTRY["🖥️ 入口 / 编排"]
+        MAIN["main.py · CLI<br/>download-models / parse-pdfs / serialize-tables<br/>process-reports / process-questions"]
+        PIPE["pipeline.py · Pipeline<br/>process_questions / process_parsed_reports<br/>RunConfig / PipelineConfig"]
+    end
+    subgraph PREP["📄 数据准备 · 离线索引"]
+        PDF["pdf_parsing · PDFParser<br/>Docling 解析 PDF → JSON"]
+        TAB["tables_serialization · TableSerializer<br/>LLM 序列化表格（可选）"]
+        MERGE["parsed_reports_merging · PageTextPreparation<br/>规整为每页文本"]
+        SPLIT["text_splitter · TextSplitter<br/>split_all_reports 按页分块"]
+        ING["ingestion · VectorDBIngestor / BM25Ingestor<br/>建 FAISS / BM25 索引"]
+        ASYNC["api_request_parallel_processor<br/>异步并发（表格序列化用）"]
+    end
+    subgraph QA["🔍 检索问答 · 在线"]
+        RET["retrieval · VectorRetriever / HybridRetriever / BM25Retriever<br/>向量 / 混合检索"]
+        RER["reranking · LLMReranker / JinaReranker<br/>LLM 加权重排"]
+        API["api_requests · APIProcessor / BaseOpenaiProcessor<br/>结构化输出"]
+        PRM["prompts · 提示词与 Schema"]
+        QAP["questions_processing · QuestionsProcessor<br/>问答主逻辑 / 引用校验"]
+        OLLCLI["ollama_client · create_ollama_client()<br/>get_ollama_embeddings()"]
+    end
+    subgraph EXT["☁️ 外部依赖"]
+        OLL[("Ollama · qwen2.5 / bge-m3")]
+        DOC[("Docling + FAISS")]
+        JINA[("Jina API（可选重排）")]
+    end
+
+    MAIN --> PIPE
+    PIPE --> PDF
+    PIPE -. 可选 .-> TAB
+    PIPE --> QAP
+    PDF --> MERGE --> SPLIT --> ING
+    TAB --> MERGE
+    ASYNC -. 支撑 .-> TAB
+    ING --> RET
+    QAP --> RET --> RER --> API --> PRM
+    RER -. 可选 .-> JINA
+    API --> OLLCLI --> OLL
+    ING --> OLL
+    PDF --> DOC
+    ING --> DOC
+    RET --> DOC
+
+    class MAIN,PIPE,QAP,RET,RER,API newc
+    class PDF,MERGE,SPLIT,ING,PRM,ASYNC,OLLCLI oldc
+    class TAB warnc
+    class OLL,DOC,JINA extc`;
+const SEQ_SRC = `
+sequenceDiagram
+    autonumber
+    participant CLI as main.py · Pipeline process_questions()
+    participant QAP as questions_processing · QuestionsProcessor
+    participant RET as retrieval · VectorRetriever / HybridRetriever
+    participant RER as reranking · LLMReranker
+    participant API as api_requests · APIProcessor
+    participant OLL as Ollama qwen2.5 / bge-m3
+
+    CLI->>QAP: process_all_questions(output_path)
+    QAP->>QAP: process_questions_list → _process_single_question
+    QAP->>QAP: _extract_companies_from_subset(question) 提取公司名
+    alt 多公司比较问题
+        QAP->>API: get_rephrased_questions(question, companies)
+        API->>OLL: 拆解为每个公司的独立问题
+        OLL-->>API: RephrasedQuestions
+    end
+    QAP->>RET: retrieve_by_company_name(company, query, top_n)
+    RET->>RET: _get_embedding(query) → faiss.search
+    opt llm_reranking 启用
+        RET->>RER: rerank_documents(query, docs)
+        RER->>API: send_message(is_structured=True, response_format)
+        API->>OLL: POST /v1/chat/completions
+        OLL-->>API: relevance_score JSON
+        API-->>RER: 向量分 + LLM 分加权融合
+        RER-->>RET: 重排后的 top_n
+    end
+    RET-->>QAP: 检索上下文（page + text）
+    QAP->>API: get_answer_from_rag_context(question, rag_context, schema)
+    API->>API: _build_rag_context_prompts(schema) 选 Prompt + Schema
+    API->>OLL: chat.completions（JSON Schema 结构化输出）
+    OLL-->>API: step_by_step_analysis / reasoning_summary / relevant_pages / final_answer
+    API-->>QAP: answer_dict
+    QAP->>QAP: _validate_page_references 校验幻觉页码
+    QAP->>QAP: _extract_references → pdf_sha1 + page_index
+    QAP->>QAP: _save_progress → 提交格式 answers.json
+    QAP-->>CLI: 统计 total / error / N/A / success`;
+const FLOW_SRC = `
+flowchart TB
+    classDef newc fill:#e6f6ec,stroke:#17a45f,stroke-width:2px,color:#0b5c3a
+    classDef oldc fill:#f1f3f6,stroke:#9aa3af,stroke-width:1.2px,stroke-dasharray:5 3,color:#5a6068
+    classDef extc fill:#eaf1fe,stroke:#3574f0,stroke-width:1.6px,color:#1c3257
+    classDef warnc fill:#fff4e0,stroke:#e6a23c,stroke-width:1.6px,color:#7a4101
+    classDef errc fill:#fdecec,stroke:#e5484d,stroke-width:1.8px,color:#b3232a
+
+    PDF["pdf_parsing · PDFParser<br/>parse_and_export_parallel()"]
+    TAB{"use_serialized_tables ?"}
+    SER["tables_serialization · TableSerializer<br/>serialize_tables()（可选）"]
+    MERGE["parsed_reports_merging · PageTextPreparation<br/>process_reports() 规整为页文本"]
+    MD["export_to_markdown()<br/>人工复核用"]
+    SPLIT["text_splitter · TextSplitter<br/>split_all_reports() 按页分块"]
+    CHUNK[("databases/chunked_reports/*.json")]
+    VEC["ingestion · VectorDBIngestor<br/>bge-m3 嵌入 → faiss IndexFlatIP"]
+    BM["ingestion · BM25Ingestor<br/>BM25Okapi 索引"]
+    FAISS[("databases/vector_dbs/*.faiss")]
+    BMDB[("databases/bm25_dbs/*.pkl")]
+    OLL[("☁️ Ollama /api/embed")]
+    RET["retrieval · VectorRetriever / BM25Retriever<br/>在线检索消费"]
+
+    PDF --> TAB
+    TAB -->|是| SER --> MERGE
+    TAB -->|否| MERGE
+    MERGE --> MD
+    MERGE --> SPLIT --> CHUNK
+    CHUNK --> VEC --> FAISS
+    CHUNK --> BM --> BMDB
+    VEC --> OLL
+    FAISS --> RET
+    BMDB --> RET
+
+    class PDF,MERGE,SPLIT,VEC,BM newc
+    class TAB oldc
+    class SER,MD warnc
+    class OLL,FAISS,BMDB,CHUNK extc
+    class RET oldc`;
+
+/* TREE：左侧工程树 */
+const TREE = [{"t":"module","n":"RAG-Challenge-2（冠军方案）","children":[{"t":"pkg","n":"入口 / 编排","children":[{"t":"class","n":"main.py","b":"new","doc":"entry-cli","kw":["main.py"],"children":[{"t":"method","n":"cli()：5 个命令分组","doc":"entry-cli","kw":["main.py"]}]},{"t":"class","n":"pipeline.py","b":"new","doc":"entry-pipe","kw":["pipeline.py","Pipeline"],"children":[{"t":"method","n":"process_questions()：调度在线问答","doc":"entry-pipe","kw":["process_questions"]},{"t":"method","n":"process_parsed_reports()：调度离线索引","doc":"entry-pipe","kw":["process_parsed_reports"]}]}]},{"t":"pkg","n":"数据准备 · 离线索引","children":[{"t":"class","n":"pdf_parsing.py","b":"mod","doc":"pdf","kw":["PDFParser"],"children":[{"t":"method","n":"PDFParser.parse_and_export_parallel()：多进程解析","doc":"pdf","kw":["parse_and_export_parallel"]}]},{"t":"class","n":"tables_serialization.py","b":"mod","doc":"table","kw":["TableSerializer"],"children":[{"t":"method","n":"TableSerializer.serialize_tables()：LLM 序列化表格","doc":"table","kw":["TableSerializer"]}]},{"t":"class","n":"parsed_reports_merging.py","b":"mod","doc":"merge","kw":["PageTextPreparation"],"children":[{"t":"method","n":"PageTextPreparation.process_reports()：规整为页文本","doc":"merge","kw":["process_reports"]}]},{"t":"class","n":"text_splitter.py","b":"mod","doc":"split","kw":["TextSplitter"],"children":[{"t":"method","n":"TextSplitter.split_all_reports()：按页分块","doc":"split","kw":["split_all_reports"]}]},{"t":"class","n":"ingestion.py","b":"mod","doc":"ingest","kw":["VectorDBIngestor","BM25Ingestor"],"children":[{"t":"method","n":"VectorDBIngestor.process_reports()：建 FAISS 库","doc":"ingest","kw":["VectorDBIngestor"]},{"t":"method","n":"BM25Ingestor.process_reports()：建 BM25 索引","doc":"ingest","kw":["BM25Ingestor"]}]}]},{"t":"pkg","n":"检索问答 · 在线","children":[{"t":"class","n":"retrieval.py","b":"new","doc":"retrieval","kw":["VectorRetriever","HybridRetriever","BM25Retriever"],"children":[{"t":"method","n":"VectorRetriever.retrieve_by_company_name()：向量检索","doc":"retrieval","kw":["retrieve_by_company_name"]},{"t":"method","n":"HybridRetriever.retrieve_by_company_name()：混合检索","doc":"retrieval","kw":["HybridRetriever"]}]},{"t":"class","n":"reranking.py","b":"new","doc":"rerank","kw":["LLMReranker","JinaReranker"],"children":[{"t":"method","n":"LLMReranker.rerank_documents()：加权重排","doc":"rerank","kw":["rerank_documents"]}]},{"t":"class","n":"api_requests.py","b":"new","doc":"api","kw":["APIProcessor","BaseOpenaiProcessor"],"children":[{"t":"method","n":"APIProcessor.get_answer_from_rag_context()：结构化问答","doc":"api","kw":["get_answer_from_rag_context"]}]},{"t":"class","n":"prompts.py","b":"new","doc":"prompts","kw":["prompts"]},{"t":"class","n":"questions_processing.py","b":"new","doc":"qa","kw":["QuestionsProcessor"],"children":[{"t":"method","n":"QuestionsProcessor.process_all_questions()：问答总入口","doc":"qa","kw":["process_all_questions"]},{"t":"method","n":"_validate_page_references()：校验幻觉页码","doc":"qa","kw":["_validate_page_references"]}]},{"t":"class","n":"api_request_parallel_processor.py","b":"old","doc":"parallel","kw":["api_request_parallel_processor"]}]},{"t":"pkg","n":"外部依赖 / 配置","children":[{"t":"class","n":"ollama_client.py","b":"old","doc":"ollama","kw":["ollama_client","create_ollama_client"]},{"t":"class","n":"环境与启动（.env / Ollama）","b":"old","doc":"setup","kw":["Ollama"]},{"t":"class","n":"外部系统（Docling / FAISS / Jina）","b":"old","doc":"ext","kw":["Docling","FAISS"]}]}]}];
+
+/* DOCS：右侧说明卡 */
+const DOCS = [{"id":"entry-cli","b":"新增","t":"【入口】main.py — CLI 命令入口","f":"main.py · 60 行","body":"\u003cul>\u003cli>\u003cb>职责\u003c/b>：用 click 定义 5 个命令，把命令行参数映射到 Pipeline 各阶段。\u003c/li>\u003cli>命令：\u003ccode>download-models / parse-pdfs / serialize-tables / process-reports / process-questions\u003c/code>。\u003c/li>\u003cli>\u003cb>关键点\u003c/b>：在数据目录内执行（\u003ccode>Path.cwd()\u003c/code> 即数据集根），用 \u003ccode>--config\u003c/code> 选 preset。\u003c/li>\u003cli>\u003cb>高频改动区\u003c/b>：新增配置 preset 时，在 \u003ccode>process-questions\u003c/code> 的 \u003ccode>--config\u003c/code> choice 列表里补名字。\u003c/li>\u003c/ul>"},{"id":"entry-pipe","b":"新增","t":"【入口】pipeline.py — 流水线编排器","f":"src/pipeline.py · 477 行","body":"\u003cul>\u003cli>\u003cb>职责\u003c/b>：把 PDF 解析 → 表格序列化 → 规整 → 分块 → 建索引 → 问答 串成可调度的流水线。\u003c/li>\u003cli>关键类 3 个：\u003ccode>Pipeline\u003c/code>（7 个阶段方法）、\u003ccode>PipelineConfig\u003c/code>（路径）、\u003ccode>RunConfig\u003c/code>（运行开关，~12 个 preset）。\u003c/li>\u003cli>\u003ccode>process_questions()\u003c/code> 把 RunConfig 的开关透传给 \u003ccode>QuestionsProcessor\u003c/code>。\u003c/li>\u003cli>\u003cb>高频改动区\u003c/b>：调参（\u003ccode>top_n_retrieval / llm_reranking / parent_document_retrieval\u003c/code>）改 preset；路径结构改 \u003ccode>PipelineConfig\u003c/code>。\u003c/li>\u003c/ul>"},{"id":"pdf","b":"调整","t":"【数据】pdf_parsing.py — Docling PDF 解析","f":"src/pdf_parsing.py · 540 行","body":"\u003cul>\u003cli>\u003cb>职责\u003c/b>：数据流起点——把年报 PDF 解析成结构化 JSON。\u003c/li>\u003cli>关键类 2 个：\u003ccode>PDFParser\u003c/code>（Docling ParseV2 backend + EasyOCR + TableFormer ACCURATE）、\u003ccode>JsonReportProcessor\u003c/code>（正文/表格/图片/元信息装配）。\u003c/li>\u003cli>\u003ccode>parse_and_export_parallel()\u003c/code> 多进程解析，\u003ccode>_normalize_page_sequence\u003c/code> 补齐空页。\u003c/li>\u003cli>\u003cb>高频改动区\u003c/b>：OCR/表格识别质量调优；解析失败在 \u003ccode>ConversionStatus\u003c/code> 分支处理。\u003c/li>\u003c/ul>"},{"id":"table","b":"调整","t":"【数据】tables_serialization.py — 表格序列化（可选）","f":"src/tables_serialization.py · 338 行","body":"\u003cul>\u003cli>\u003cb>职责\u003c/b>：把表格 + 前后文交给 LLM，序列化为 \u003ccode>information_blocks\u003c/code> 结构化块。\u003c/li>\u003cli>关键类：\u003ccode>TableSerializer\u003c/code>（继承 BaseOpenaiProcessor），异步路径走 \u003ccode>AsyncOpenaiProcessor\u003c/code>。\u003c/li>\u003cli>仅当 \u003ccode>RunConfig.use_serialized_tables=True\u003c/code> 时启用（可选分支）。\u003c/li>\u003cli>\u003cb>高频改动区\u003c/b>：\u003ccode>_get_table_context\u003c/code> 取表格前后文的块数窗口。\u003c/li>\u003c/ul>"},{"id":"merge","b":"调整","t":"【数据】parsed_reports_merging.py — 报告规整","f":"src/parsed_reports_merging.py · 435 行","body":"\u003cul>\u003cli>\u003cb>职责\u003c/b>：把复杂 JSON 规整为每页文本，供分块/检索/人工审查。\u003c/li>\u003cli>关键类：\u003ccode>PageTextPreparation\u003c/code>，核心 \u003ccode>_filter_blocks / _apply_formatting_rules / _render_table_group\u003c/code>。\u003c/li>\u003cli>\u003ccode>export_to_markdown()\u003c/code> 导出 markdown 用于人工复核或全文检索。\u003c/li>\u003cli>\u003cb>高频改动区\u003c/b>：格式化规则（页眉页脚、编号、表格转 markdown）。\u003c/li>\u003c/ul>"},{"id":"split","b":"调整","t":"【数据】text_splitter.py — 文本分块","f":"src/text_splitter.py · 126 行","body":"\u003cul>\u003cli>\u003cb>职责\u003c/b>：把每页文本按 token 分块，作为向量化/检索的最小单元。\u003c/li>\u003cli>关键类：\u003ccode>TextSplitter\u003c/code>，用 langchain \u003ccode>RecursiveCharacterTextSplitter\u003c/code>。\u003c/li>\u003cli>参数：\u003ccode>chunk_size=300 / chunk_overlap=50\u003c/code>（o200k_base 编码）。\u003c/li>\u003cli>\u003cb>高频改动区\u003c/b>：chunk 大小/重叠直接影响检索粒度与召回。\u003c/li>\u003c/ul>"},{"id":"ingest","b":"调整","t":"【数据】ingestion.py — 索引构建","f":"src/ingestion.py · 110 行","body":"\u003cul>\u003cli>\u003cb>职责\u003c/b>：把分块文本建成向量库 / BM25 索引。\u003c/li>\u003cli>关键类 2 个：\u003ccode>VectorDBIngestor\u003c/code>（bge-m3 嵌入 + faiss \u003ccode>IndexFlatIP\u003c/code>）、\u003ccode>BM25Ingestor\u003c/code>（rank_bm25 的 BM25Okapi）。\u003c/li>\u003cli>输出 \u003ccode>*.faiss / *.pkl\u003c/code>（按 \u003ccode>sha1_name\u003c/code> 命名）。\u003c/li>\u003cli>\u003cb>高频改动区\u003c/b>：换嵌入模型需重建全部索引；嵌入批量 \u003ccode>max_batch_size=25\u003c/code>。\u003c/li>\u003c/ul>"},{"id":"retrieval","b":"测试","t":"【问答】retrieval.py — 检索","f":"src/retrieval.py · 279 行","body":"\u003cul>\u003cli>\u003cb>职责\u003c/b>：按公司名 + 问题检索相关文本块。\u003c/li>\u003cli>关键类 3 个：\u003ccode>VectorRetriever\u003c/code>（faiss search）、\u003ccode>BM25Retriever\u003c/code>（词法）、\u003ccode>HybridRetriever\u003c/code>（向量 + LLM 重排）。\u003c/li>\u003cli>\u003ccode>return_parent_pages=True\u003c/code> 时返回整页（父文档检索）。\u003c/li>\u003cli>\u003cb>高频改动区\u003c/b>：\u003ccode>top_n\u003c/code>；维度校验——模型切换后向量维度不匹配会抛 ValueError。\u003c/li>\u003c/ul>"},{"id":"rerank","b":"测试","t":"【问答】reranking.py — 重排","f":"src/reranking.py · 156 行","body":"\u003cul>\u003cli>\u003cb>职责\u003c/b>：提升检索上下文相关性。\u003c/li>\u003cli>关键类 2 个：\u003ccode>LLMReranker\u003c/code>（LLM 打分 + 向量分加权融合，\u003ccode>llm_weight=0.7\u003c/code>）、\u003ccode>JinaReranker\u003c/code>（外部 Jina API，可选需 key）。\u003c/li>\u003cli>\u003ccode>rerank_documents\u003c/code> 分批送 LLM，缺打分时兜底 \u003ccode>0.0\u003c/code>。\u003c/li>\u003cli>\u003cb>高频改动区\u003c/b>：\u003ccode>llm_weight / documents_batch_size\u003c/code>。\u003c/li>\u003c/ul>"},{"id":"api","b":"测试","t":"【问答】api_requests.py — LLM 交互","f":"src/api_requests.py · 647 行","body":"\u003cul>\u003cli>\u003cb>职责\u003c/b>：与 LLM 交互的统一出口，封装结构化输出。\u003c/li>\u003cli>关键类 2 个：\u003ccode>BaseOpenaiProcessor\u003c/code>（Ollama OpenAI 兼容 chat 接口）、\u003ccode>APIProcessor\u003c/code>（按 provider 路由，当前仅 ollama）。\u003c/li>\u003cli>结构化输出：pydantic schema 注入提示词 + \u003ccode>response_format=json_object\u003c/code> + \u003ccode>repair_json\u003c/code> 修复坏 JSON。\u003c/li>\u003cli>\u003ccode>get_answer_from_rag_context\u003c/code> 按 schema（name/number/boolean/names/comparative）选 Prompt。\u003c/li>\u003cli>\u003cb>高频改动区\u003c/b>：IBM/Gemini 处理器是遗留（比赛专用，已不可用）。\u003c/li>\u003c/ul>"},{"id":"prompts","b":"测试","t":"【问答】prompts.py — 提示词与 Schema","f":"src/prompts.py · 471 行","body":"\u003cul>\u003cli>\u003cb>职责\u003c/b>：集中定义所有提示词 + pydantic 输出 Schema。\u003c/li>\u003cli>覆盖：RAG 问答（name/number/boolean/names）、比较、重排、schema 修复、问题重写。\u003c/li>\u003cli>\u003ccode>build_system_prompt\u003c/code> 统一组装 instruction + schema + example。\u003c/li>\u003cli>\u003cb>高频改动区\u003c/b>：改输出结构 = 改 \u003ccode>AnswerSchema\u003c/code>；改引导语 = 改 \u003ccode>instruction\u003c/code>。\u003c/li>\u003c/ul>"},{"id":"qa","b":"测试","t":"【问答】questions_processing.py — 问答主逻辑","f":"src/questions_processing.py · 525 行","body":"\u003cul>\u003cli>\u003cb>职责\u003c/b>：问答主链路实现核心。\u003c/li>\u003cli>流程：\u003ccode>_extract_companies_from_subset\u003c/code> 提公司名 → \u003ccode>get_answer_for_company\u003c/code> 检索+问答 → \u003ccode>_validate_page_references\u003c/code> 校验幻觉页码（min 2 / max 8）→ \u003ccode>_extract_references\u003c/code> 生成 pdf_sha1+page_index → \u003ccode>_post_process_submission_answers\u003c/code> 转 0-based 提交格式。\u003c/li>\u003cli>\u003ccode>process_comparative_question\u003c/code> 处理多公司比较（问题重写 + 并行 + 汇总）。\u003c/li>\u003cli>\u003cb>高频改动区\u003c/b>：引用校验规则、提交格式。\u003c/li>\u003c/ul>"},{"id":"parallel","b":"测试","t":"【问答】api_request_parallel_processor.py — 异步并发（遗留）","f":"src/api_request_parallel_processor.py · 403 行","body":"\u003cul>\u003cli>\u003cb>职责\u003c/b>：通用异步限流批量 API 处理器（\u003ccode>process_api_requests_from_file\u003c/code>）。\u003c/li>\u003cli>关键类：\u003ccode>StatusTracker / APIRequest\u003c/code>，管理限流、重试、速率控制。\u003c/li>\u003cli>用于表格序列化的并发结构化输出；主链路基本不走。\u003c/li>\u003cli>\u003cb>改动低频\u003c/b>：竞赛遗留代码，新功能优先复用 \u003ccode>AsyncOpenaiProcessor\u003c/code>。\u003c/li>\u003c/ul>"},{"id":"ollama","b":"复用","t":"【外部】ollama_client.py — Ollama 适配","f":"src/ollama_client.py · 61 行","body":"\u003cul>\u003cli>\u003cb>职责\u003c/b>：读取 \u003ccode>.env\u003c/code> 配置，封装 Ollama 客户端与嵌入。\u003c/li>\u003cli>\u003ccode>get_llm_provider / get_ollama_base_url / get_ollama_model / get_ollama_embedding_model\u003c/code> 读环境变量。\u003c/li>\u003cli>\u003ccode>create_ollama_client\u003c/code> 建 OpenAI 兼容客户端；\u003ccode>get_ollama_embeddings\u003c/code> POST \u003ccode>/api/embed\u003c/code>。\u003c/li>\u003cli>\u003cb>换模型 = 改 .env\u003c/b>，代码不动。\u003c/li>\u003c/ul>"},{"id":"setup","b":"复用","t":"【启动】环境与启动","f":".env / data/test_set / data/erc2_set","body":"\u003cul>\u003cli>\u003cb>先跑通，再读代码\u003c/b>。\u003c/li>\u003cli>① 装依赖 + Ollama，\u003ccode>ollama pull qwen2.5:7b\u003c/code> 和 \u003ccode>ollama pull bge-m3\u003c/code>。\u003c/li>\u003cli>② \u003ccode>.env\u003c/code> 配 \u003ccode>LLM_PROVIDER=ollama / OLLAMA_BASE_URL / OLLAMA_MODEL / OLLAMA_EMBEDDING\u003c/code>。\u003c/li>\u003cli>③ 用 test_set 小数据集：\u003ccode>process-reports --config no_ser_tab\u003c/code> 建索引，再 \u003ccode>process-questions --config max_nst_o3m\u003c/code> 跑问答。\u003c/li>\u003cli>④ 换 bge-m3 后旧 FAISS 索引不能复用，需重建向量库。\u003c/li>\u003c/ul>"},{"id":"ext","b":"复用","t":"【外部】外部系统依赖","f":"Docling / FAISS / Jina / tiktoken / rank_bm25","body":"\u003cul>\u003cli>\u003cb>Docling\u003c/b>：PDF 结构化解析（GPU 加速显著）。\u003c/li>\u003cli>\u003cb>faiss\u003c/b>：向量检索（IndexFlatIP 内积即余弦）。\u003c/li>\u003cli>\u003cb>Ollama\u003c/b>：本地推理（qwen2.5:7b）与嵌入（bge-m3）。\u003c/li>\u003cli>\u003cb>Jina API\u003c/b>：可选外部重排（需 JINA_API_KEY）。\u003c/li>\u003cli>\u003cb>tiktoken / rank_bm25\u003c/b>：计 token / 词法检索。\u003c/li>\u003c/ul>"}];
+
+/* TOUR：导览站点 */
+const TOUR = [{"tab":"over","tree":null,"sl":"全景鸟瞰","title":"第 1 站 · 全景鸟瞰","text":"这是 RAG Challenge 2 的 4 层架构：\u003cb>入口/编排\u003c/b>（main.py、pipeline.py）→ \u003cb>数据准备\u003c/b>（PDF 解析到建索引）→ \u003cb>检索问答\u003c/b>（检索→重排→LLM→校验）→ \u003cb>外部依赖\u003c/b>。绿色 = 每次问答必经的核心链路，蓝色 = 外部系统，橙色 = 可选分支。点击任意模块直达。"},{"tab":"over","tree":"环境与启动","sl":"环境启动","title":"第 2 站 · 先跑起来","text":"新人第一件事是\u003cb>跑通\u003c/b>：装 Ollama 并 pull qwen2.5:7b 和 bge-m3，配好 \u003ccode>.env\u003c/code>，用 \u003ccode>data/test_set\u003c/code> 小数据集执行 \u003ccode>process-reports\u003c/code> 再 \u003ccode>process-questions\u003c/code>。右栏「环境与启动」卡有完整步骤。"},{"tab":"flow","tree":"pdf_parsing","sl":"解析 PDF","title":"第 3 站 · 数据起点：PDF 解析","text":"切到流程图：数据流从 \u003ccode>pdf_parsing.PDFParser\u003c/code> 开始，Docling + EasyOCR + TableFormer 把年报 PDF 解析成结构化 JSON。这是最耗 GPU 的一步。"},{"tab":"flow","tree":"text_splitter","sl":"规整与分块","title":"第 4 站 · 规整与分块","text":"\u003ccode>PageTextPreparation\u003c/code> 把 JSON 规整为每页文本，\u003ccode>TextSplitter\u003c/code> 按 300 token 分块。表格序列化是可选分支（\u003ccode>use_serialized_tables\u003c/code> 控制）。"},{"tab":"flow","tree":"ingestion","sl":"建索引","title":"第 5 站 · 构建索引","text":"\u003ccode>VectorDBIngestor\u003c/code> 用 bge-m3 嵌入 + faiss 建向量库，\u003ccode>BM25Ingestor\u003c/code> 建词法索引。产物 \u003ccode>*.faiss / *.pkl\u003c/code> 供在线检索消费。换嵌入模型必须重建全部索引。"},{"tab":"seq","tree":"questions_processing","sl":"问答入口","title":"第 6 站 · 一次问答的生命周期","text":"切到时序图：一次提问从 \u003ccode>QuestionsProcessor.process_all_questions\u003c/code> 进入，先 \u003ccode>_extract_companies_from_subset\u003c/code> 提取公司名，再逐题处理。这是在线问答的编排中心。"},{"tab":"seq","tree":"retrieval","sl":"检索与重排","title":"第 7 站 · 检索与重排","text":"\u003ccode>VectorRetriever\u003c/code> 把问题转向量后 faiss 搜索，命中公司报告的 top_n 块；启用 \u003ccode>llm_reranking\u003c/code> 时 \u003ccode>HybridRetriever\u003c/code> 再用 LLM 打分加权融合，提升上下文相关性。"},{"tab":"seq","tree":"api_requests","sl":"LLM 问答","title":"第 8 站 · 结构化问答","text":"\u003ccode>APIProcessor.get_answer_from_rag_context\u003c/code> 按 schema 选 Prompt + pydantic Schema，把 RAG 上下文交给 Ollama 做结构化输出（step_by_step_analysis / final_answer / relevant_pages）。"},{"tab":"seq","tree":"_validate_page_references","sl":"引用校验","title":"第 9 站 · 引用校验与提交","text":"收尾：\u003ccode>_validate_page_references\u003c/code> 剔除 LLM 幻觉的页码（保底补 top 页），\u003ccode>_extract_references\u003c/code> 生成 pdf_sha1+page_index，\u003ccode>_post_process_submission_answers\u003c/code> 转 0-based 提交格式。一次问答走完。"},{"tab":"over","tree":null,"sl":"自由探索","title":"🎉 导览完成","text":"现在自由探索：左侧树 / 中间图 / 右侧说明卡点击任何一处都会三方联动并画线。想要深入某环节，读对应卡的「高频改动区」——那是这个模块最容易改的地方。导览可随时从顶栏「🧭 跟流程走一遍」重来。"}];
+
+/* ════════ MAP-DATA-END ════════ */
+/* ════════ MAP-DATA-END ════════ */
+
+/* ════════ 引擎固定区（一般无需改动） ════════ */
+
+/* ════════ MAP_META 元信息注入（读取数据区 MAP_META，填充到 DOM） ════════ */
+(function applyMeta() {
+  const M = (typeof MAP_META !== 'undefined' ? MAP_META : {}) || {};
+  if (M.title) document.title = M.title;
+  const h1 = document.querySelector('header h1');
+  if (h1 && M.h1) h1.textContent = M.h1;
+  const sub = document.querySelector('.title-block p');
+  if (sub && M.subtitle) sub.innerHTML = M.subtitle;
+  const statsBox = document.querySelector('header .stats');
+  if (statsBox && Array.isArray(M.stats)) {
+    statsBox.innerHTML = M.stats.map(s =>
+      `<div class="stat"><span class="num${s.amber ? ' amber' : ''}">${s.num}</span><span class="lbl">${s.lbl}</span></div>`
+    ).join('');
+  }
+  const proj = document.querySelector('.tree-head .proj');
+  if (proj && M.project) proj.textContent = M.project;
+  const cap = document.querySelector('.doc-head .cap');
+  if (cap && M.docCap) cap.textContent = M.docCap;
+  const wHero = document.querySelector('.welcome h2');
+  if (wHero && M.h1) wHero.textContent = M.h1;
+  const wSub = document.querySelector('.welcome .w-sub');
+  if (wSub && M.welcomeSub) wSub.innerHTML = M.welcomeSub;
+  const wList = document.querySelector('.welcome ul');
+  if (wList && Array.isArray(M.welcomeItems)) {
+    wList.innerHTML = M.welcomeItems.map(i =>
+      `<li><span class="wi">${i.icon || ''}</span>${i.html || ''}</li>`
+    ).join('');
+  }
+})();
+/* 欢迎层 key：由 MAP_META.slug 派生，每张新图必须换 slug，否则老访客看不到新图欢迎层 */
+const WELCOME_KEY = (((typeof MAP_META !== 'undefined' && MAP_META) || {}).slug || 'codemap') + '-welcomed';
+
+/* 图源回填到"查看源码"折叠块（页签被裁剪时对应元素不存在，跳过即可） */
+const SRC_MAP = { over: OVER_SRC, seq: SEQ_SRC, flow: FLOW_SRC };
+Object.entries(SRC_MAP).forEach(([name, src]) => {
+  const el = document.getElementById('src-' + name);
+  if (el && src) el.textContent = src;
+});
+
+mermaid.initialize({
+  startOnLoad: false, securityLevel: 'loose', theme: 'base',
+  fontFamily: '"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif',
+  themeVariables: {
+    primaryColor: '#e6f6ec', primaryBorderColor: '#17a45f', primaryTextColor: '#1f2430',
+    lineColor: '#a6aebc', secondaryColor: '#f1f3f6', tertiaryColor: '#f7f8fa',
+    actorBkg: '#eaf1fe', actorBorder: '#7ea6f4', actorTextColor: '#1c3257',
+    actorLineColor: '#c9d4e6',
+    signalColor: '#3c434d', signalTextColor: '#3c434d',
+    noteBkgColor: '#fff8e1', noteBorderColor: '#eec04b', noteTextColor: '#6b4e00',
+    activationBkgColor: '#e8f1ff', activationBorderColor: '#7ea6f4',
+    labelBoxBkgColor: '#f1f3f6', labelBoxBorderColor: '#9aa3af',
+    loopTextColor: '#5c6370', sequenceNumberColor: '#ffffff',
+    clusterBkg: '#f4f8ff', clusterBorder: '#b9cdec',
+    fontSize: '14px'
+  },
+  /* 自然尺寸渲染（字号清晰），再由 JS 按容器宽度做适配缩放 */
+  flowchart: { curve: 'basis', nodeSpacing: 36, rankSpacing: 46, useMaxWidth: false, padding: 14 },
+  sequence: { useMaxWidth: false, actorMargin: 34, messageMargin: 32, noteMargin: 10,
+    mirrorActors: false, height: 44, boxMargin: 9, actorFontSize: 14,
+    messageFontSize: 13, noteFontSize: 12, actorFontWeight: 600, wrap: false }
+});
+
+/* ══════════════ 内联 SVG 图标（IDEA 风格） ══════════════ */
+const ICON_CHEV = '<svg width="8" height="8" viewBox="0 0 8 8"><path d="M1.5 1.2 L7 4 L1.5 6.8 Z" fill="currentColor" stroke="none"/></svg>';
+const ICONS = {
+  module: '<svg width="15" height="15" viewBox="0 0 16 16"><defs><linearGradient id="gm1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5b8def"/><stop offset="1" stop-color="#3574f0"/></linearGradient></defs><rect x="1.5" y="2.5" width="13" height="11" rx="2.2" fill="url(#gm1)" stroke="#2456c4" stroke-width=".8"/><rect x="1.5" y="2.5" width="13" height="4.2" rx="2.2" fill="#8fb2f6" opacity=".85"/><circle cx="8" cy="9.8" r="1.7" fill="#fff" opacity=".95"/></svg>',
+  pkg: '<svg width="15" height="15" viewBox="0 0 16 16"><path d="M1.5 4.5 Q1.5 3 3 3 H5.8 L7.3 4.8 H13 Q14.5 4.8 14.5 6.3 V12 Q14.5 13.5 13 13.5 H3 Q1.5 13.5 1.5 12 Z" fill="#f8cf7d" stroke="#d9a520" stroke-width=".9"/><path d="M1.5 7.2 H14.5" stroke="#e8b84f" stroke-width=".8"/></svg>',
+  cls: '<svg width="15" height="15" viewBox="0 0 16 16"><defs><linearGradient id="gc1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4c86f4"/><stop offset="1" stop-color="#2d63cf"/></linearGradient></defs><circle cx="8" cy="8" r="6.3" fill="url(#gc1)" stroke="#2456c4" stroke-width=".8"/><text x="8" y="10.8" text-anchor="middle" font-size="8.5" font-weight="700" fill="#fff" font-family="Georgia">C</text></svg>',
+  iface: '<svg width="15" height="15" viewBox="0 0 16 16"><defs><linearGradient id="gi1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#34b377"/><stop offset="1" stop-color="#1d8f5b"/></linearGradient></defs><circle cx="8" cy="8" r="6.3" fill="url(#gi1)" stroke="#177a4d" stroke-width=".8"/><text x="8" y="10.8" text-anchor="middle" font-size="8.5" font-weight="700" fill="#fff" font-family="Georgia">I</text></svg>',
+  method: '<svg width="14" height="14" viewBox="0 0 16 16"><rect x="4.4" y="4.4" width="7.2" height="7.2" rx="1.8" transform="rotate(45 8 8)" fill="#ece5fd" stroke="#7a5af8" stroke-width="1.1"/><circle cx="8" cy="8" r="1.4" fill="#7a5af8"/></svg>',
+};
+
+/* ══════════════ 渲染左树（可折叠嵌套结构） ══════════════ */
+function countDesc(item) {
+  let n = 0;
+  (item.children || []).forEach(c => { n += 1 + countDesc(c); });
+  return n;
+}
+function buildBranch(item, depth) {
+  const branch = document.createElement('div');
+  branch.className = 'tbranch open';
+  branch.dataset.t = item.t;
+
+  const row = document.createElement('div');
+  row.className = 'tnode' + (item.b === 'old' ? ' dim' : '');
+  row.style.paddingLeft = '6px';
+  row.dataset.item = JSON.stringify({ n: item.n, doc: item.doc || null, kw: item.kw || [], t: item.t });
+  const hasKids = !!(item.children && item.children.length);
+  const chev = hasKids ? ICON_CHEV : '';
+  const icon = ICONS[item.t === 'class' ? 'cls' : item.t === 'iface' ? 'iface' : item.t];
+  const badge = (item.b && item.t !== 'method')
+    ? `<span class="badge ${item.b}">${item.b === 'new' ? '新增' : item.b === 'mod' ? '调整' : '复用'}</span>` : '';
+  const kidsN = hasKids ? `<span class="kids-n">${countDesc(item)}</span>` : '';
+  const nameCls = ['name', depth <= 1 ? 'mono' : '',
+    item.t === 'method' && item.b === 'new' ? 'm-new' : '',
+    item.t !== 'method' && item.b === 'mod' ? 'mod-name' : ''].join(' ');
+  row.innerHTML = `<span class="chev ${hasKids ? '' : 'hidden'}">${chev}</span><span class="kico">${icon}</span><span class="${nameCls}" title="${item.n}">${item.n}</span>${kidsN}${badge}`;
+  branch.appendChild(row);
+
+  /* 交互：
+     · 点箭头 → 折叠/展开（模块、包、类、接口均可）
+     · 点行（有 doc）→ 三方联动；无 doc 的分组节点 → 点行即折叠切换
+     · 双击行 → 折叠/展开 */
+  const toggle = () => {
+    branch.classList.toggle('closed');
+    requestAnimationFrame(() => { if (activeTree) drawLinks(); });
+  };
+  if (hasKids) {
+    row.querySelector('.chev').addEventListener('click', e => { e.stopPropagation(); toggle(); });
+    row.addEventListener('dblclick', e => { e.stopPropagation(); toggle(); });
+  }
+  if (item.doc) {
+    row.addEventListener('click', e => {
+      e.stopPropagation();
+      expandAncestors(row);
+      setActive(row, true);
+    });
+    row.addEventListener('mouseenter', () => setActive(row, false));
+  } else if (hasKids) {
+    row.addEventListener('click', e => { e.stopPropagation(); toggle(); });
+  }
+  branch._toggle = toggle;
+
+  if (hasKids) {
+    const wrap = document.createElement('div');
+    wrap.className = 'tkids-wrap';
+    const inner = document.createElement('div');
+    inner.className = 'tkids-inner';
+    item.children.forEach(c => inner.appendChild(buildBranch(c, depth + 1)));
+    wrap.appendChild(inner);
+    branch.appendChild(wrap);
+  }
+  return branch;
+}
+
+function renderTree() {
+  const root = document.getElementById('tree');
+  root.innerHTML = '';
+  TREE.forEach(item => root.appendChild(buildBranch(item, 0)));
+  /* 底部状态条：按树数据统计 */
+  const acc = {};
+  (function walk(list) { list.forEach(it => {
+    if (it.b) acc[it.b] = (acc[it.b] || 0) + 1;
+    if (it.children) walk(it.children);
+  }); })(TREE);
+  document.getElementById('treeFoot').innerHTML =
+    `<span class="fn"><span class="fdot" style="background:var(--green)"></span>新增 <b>${acc.new || 0}</b></span>` +
+    `<span class="fn"><span class="fdot" style="background:var(--amber)"></span>调整 <b>${acc.mod || 0}</b></span>` +
+    `<span class="fn"><span class="fdot" style="background:#b6bdc7"></span>复用 <b>${acc.old || 0}</b></span>` +
+    `<span style="margin-left:auto;color:var(--text-3)">IDEA 风格 · 双击折叠</span>`;
+}
+
+/* 展开某行的全部祖先（折叠的节点里的目标恢复可见） */
+function expandAncestors(row) {
+  let p = row.parentElement ? row.parentElement.closest('.tbranch') : null;
+  while (p) { p.classList.remove('closed'); p = p.parentElement ? p.parentElement.closest('.tbranch') : null; }
+}
+
+/* 树工具栏 */
+document.getElementById('btnExpandAll').addEventListener('click', () => {
+  document.querySelectorAll('.tbranch').forEach(b => b.classList.remove('closed'));
+});
+document.getElementById('btnCollapseAll').addEventListener('click', () => {
+  document.querySelectorAll('.tbranch').forEach(b => { if (b.dataset.t !== 'module') b.classList.add('closed'); });
+  setActive(null, false);
+});
+document.getElementById('btnCollapseMethods').addEventListener('click', () => {
+  document.querySelectorAll('.tbranch').forEach(b => {
+    b.classList.toggle('closed', b.dataset.t === 'class' || b.dataset.t === 'iface');
+  });
+});
+
+/* ══════════════ 树搜索过滤 ══════════════ */
+const searchInput = document.getElementById('treeSearch');
+const searchCount = document.getElementById('searchCount');
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.trim().toLowerCase();
+  const branches = [...document.querySelectorAll('.tbranch')];
+  const rows = [...document.querySelectorAll('.tnode')];
+  /* 先还原所有名称 */
+  rows.forEach(r => {
+    const info = JSON.parse(r.dataset.item || '{}');
+    const nameEl = r.querySelector('.name');
+    if (nameEl && nameEl.textContent !== info.n) nameEl.textContent = info.n;
+  });
+  if (!q) {
+    branches.forEach(b => b.classList.remove('fhide'));
+    searchCount.textContent = '';
+    return;
+  }
+  const matchRows = new Set();
+  rows.forEach(r => {
+    const info = JSON.parse(r.dataset.item || '{}');
+    if ((info.n || '').toLowerCase().includes(q)) matchRows.add(r);
+  });
+  /* 隐藏没有任何匹配后代的分支，并展开含匹配的分支 */
+  branches.forEach(b => {
+    const has = [...b.querySelectorAll('.tnode')].some(r => matchRows.has(r));
+    b.classList.toggle('fhide', !has);
+    if (has) b.classList.remove('closed');
+  });
+  /* 高亮命中文字 */
+  const esc = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp('(' + esc + ')', 'ig');
+  matchRows.forEach(r => {
+    const info = JSON.parse(r.dataset.item || '{}');
+    const nameEl = r.querySelector('.name');
+    if (nameEl) nameEl.innerHTML = info.n.replace(re, '<mark>$1</mark>');
+  });
+  searchCount.textContent = matchRows.size ? matchRows.size + ' 项' : '无结果';
+});
+
+/* ══════════════ 渲染右侧说明 ══════════════ */
+function renderDocs() {
+  const root = document.getElementById('docs');
+  const meta = { '新增': ['new', 'var(--green)'], '调整': ['mod', 'var(--amber)'],
+    '测试': ['new', 'var(--purple)'], '复用': ['old', '#9aa3af'] };
+  DOCS.forEach(d => {
+    const [cls, color] = meta[d.b];
+    const el = document.createElement('div');
+    el.className = 'doc'; el.id = 'doc-' + d.id; el.dataset.b = d.b;
+    el.style.setProperty('--dc', color);
+    el.innerHTML = `<h3><span class="badge ${cls}">${d.b}</span>${d.t}<span class="pin">🔗 点击联动</span></h3><div class="file">${d.f}</div>${d.body}`;
+    /* 点击说明卡 → 反向联动：高亮树行 + 图节点，连线从左贯穿到右 */
+    el.addEventListener('click', () => {
+      const row = [...document.querySelectorAll('.tnode')]
+        .find(r => { const info = JSON.parse(r.dataset.item || '{}'); return info.doc === d.id; });
+      if (row) {
+        expandAncestors(row);
+        setActive(row, true);
+        if (row.scrollIntoView) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    });
+    root.appendChild(el);
+  });
+}
+/* 说明卡类型过滤 */
+document.querySelectorAll('.dchip').forEach(ch => ch.addEventListener('click', () => {
+  document.querySelectorAll('.dchip').forEach(c => c.classList.toggle('on', c === ch));
+  const f = ch.dataset.f;
+  document.querySelectorAll('.doc').forEach(d => {
+    d.style.display = (f === 'all' || d.dataset.b === f) ? '' : 'none';
+  });
+}));
+
+/* ══════════════ 联动核心 ══════════════ */
+let activeTree = null, pinned = false;
+const linkLayer = document.getElementById('linkLayer');
+
+function findSvgMatches(keywords, includeHidden = false) {
+  const out = [];
+  TABS.forEach(name => {
+    const box = document.getElementById('box-' + name);
+    if (!box || (!includeHidden && box.offsetParent === null)) return; // 隐藏的 tab 不参与
+    const seen = new Set();
+    box.querySelectorAll('text, tspan, foreignObject span, foreignObject div').forEach(t => {
+      const txt = (t.textContent || '').trim();
+      if (!keywords.some(k => txt.includes(k))) return;
+      let g = t.closest('g.node, g.actor, g.rootGroup, g.edgeLabel, g.cluster');
+      if (g && !seen.has(g)) {
+        seen.add(g); out.push({ el: g, box });
+      } else if (!g && !seen.has(t)) {
+        seen.add(t); out.push({ el: t, box });
+      }
+    });
+  });
+  return out;
+}
+
+function setActive(treeEl, pin) {
+  document.querySelectorAll('.tnode.active').forEach(n => n.classList.remove('active'));
+  document.querySelectorAll('.doc.active').forEach(n => n.classList.remove('active'));
+  document.querySelectorAll('.mermaid-box .hl, .mermaid-box .hl2').forEach(n => n.classList.remove('hl', 'hl2'));
+  if (!treeEl) { linkLayer.querySelectorAll('path.lk, circle.src-dot').forEach(n => n.remove()); activeTree = null; pinned = false; return; }
+  treeEl.classList.add('active');
+  activeTree = treeEl;
+  if (pin) pinned = true;
+
+  const info = JSON.parse(treeEl.dataset.item || '{}');
+  const docEl = document.getElementById('doc-' + info.doc);
+  if (docEl) {
+    docEl.classList.add('active');
+    if (docEl.scrollIntoView) docEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+  const matches = findSvgMatches(info.kw || []);
+  if (matches.length) {
+    /* 滚动主目标进入视野（第一个匹配） */
+    const box = matches[0].box;
+    const mRect = matches[0].el.getBoundingClientRect();
+    const bRect = box.getBoundingClientRect();
+    const wrapEl = box.parentElement;
+    if (wrapEl.scrollIntoView) wrapEl.scrollIntoView({ block: 'nearest' });
+    if (wrapEl.scrollBy) wrapEl.scrollBy({ top: (mRect.top - bRect.top) - 100, behavior: 'smooth' });
+  } else if (info.kw && info.kw.length) {
+    /* 当前标签页没有匹配节点 → 自动切到有关键词的标签页 */
+    const tabOrder = TABS;
+    const cur = document.querySelector('.tab.on').dataset.tab;
+    for (const name of tabOrder) {
+      if (name === cur) continue;
+      const found = findSvgMatches(info.kw, true).some(m => m.box.id === 'box-' + name);
+      if (found) { selectTab(name); break; }
+    }
+  }
+  /* 树折叠/展开有 0.2s 高度过渡动画，rAF 时行可能仍是 0 尺寸；
+     连续几帧重绘，直到布局稳定，保证连线不丢 */
+  for (let k = 0; k <= 6; k++) requestAnimationFrame(() => drawLinks());
+  setTimeout(() => drawLinks(), 240);
+}
+
+/* 连线：树行 → 图主目标（一条主线）→ 右侧说明卡；
+   其余匹配只加次级光圈（hl2），不画线 —— 避免多线交叉穿线 */
+function drawLinks() {
+  linkLayer.querySelectorAll('path.lk, circle.src-dot').forEach(n => n.remove());
+  if (!activeTree) return;
+  const tR = activeTree.getBoundingClientRect();
+  if (!tR.width && !tR.height) return;
+
+  const info = JSON.parse(activeTree.dataset.item || '{}');
+  const matches = findSvgMatches(info.kw || []).filter(m => {
+    const r = m.el.getBoundingClientRect();
+    return r.width || r.height;
+  });
+  if (!matches.length) return;
+
+  const stage = document.getElementById('stage');
+  const sR = stage.getBoundingClientRect();
+  const rel = r => ({ x1: r.left - sR.left, y1: r.top - sR.top,
+    x2: r.right - sR.left, y2: r.bottom - sR.top,
+    cx: r.left - sR.left + r.width / 2, cy: r.top - sR.top + r.height / 2 });
+
+  const tRel = rel(tR);
+  let main = matches[0], mainRel = rel(main.el.getBoundingClientRect()), bestD = Infinity;
+  matches.forEach(m => {
+    const mr = rel(m.el.getBoundingClientRect());
+    const d = Math.abs(mr.cy - tRel.cy);
+    if (d < bestD) { bestD = d; main = m; mainRel = mr; }
+  });
+  main.el.classList.add('hl');
+  matches.forEach(m => { if (m !== main) m.el.classList.add('hl2'); });
+
+  const mkPath = (d, withArrow) => {
+    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p.setAttribute('d', d); p.setAttribute('class', 'lk');
+    if (withArrow) p.setAttribute('marker-end', 'url(#lkarrow)');
+    linkLayer.appendChild(p);
+  };
+  const mkDot = (x, y) => {
+    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c.setAttribute('cx', x); c.setAttribute('cy', y); c.setAttribute('r', 4);
+    c.setAttribute('class', 'src-dot');
+    linkLayer.appendChild(c);
+  };
+  const curve = (x1, y1, x2, y2) => {
+    const dx = Math.max(56, Math.abs(x2 - x1) * 0.42);
+    return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+  };
+
+  const s1x = tRel.x2, s1y = tRel.cy;
+  const e1x = mainRel.x1 - 6, e1y = mainRel.cy;
+  mkPath(curve(s1x + 4, s1y, e1x, e1y), true);
+  mkDot(s1x, s1y);
+
+  const docEl = document.getElementById('doc-' + info.doc);
+  if (docEl && docEl.offsetParent !== null) {
+    const dRel = rel(docEl.getBoundingClientRect());
+    mkPath(curve(mainRel.x2, mainRel.cy, dRel.x1 - 6, dRel.cy), true);
+    mkDot(mainRel.x2, mainRel.cy);
+  }
+}
+
+/* 反向联动：点击图节点 → 激活对应树节点（自动展开其祖先链） */
+function bindReverse() {
+  document.querySelectorAll('.mermaid-box g.node, .mermaid-box g.actor').forEach(g => {
+    g.style.cursor = 'pointer';
+    g.addEventListener('click', () => {
+      const txt = (g.textContent || '').trim();
+      const hit = TREE_SEARCH.find(it => it.doc && (it.kw || []).some(k => txt.includes(k)) && it.t !== 'method');
+      const fallback = TREE_SEARCH.find(it => it.doc && (it.kw || []).some(k => txt.includes(k)));
+      const target = hit || fallback;
+      if (target) {
+        const el = target._row;
+        if (el) { expandAncestors(el); setActive(el, true); }
+      }
+    });
+  });
+}
+let TREE_SEARCH = [];
+function indexRows() {
+  TREE_SEARCH = [];
+  document.querySelectorAll('.tnode').forEach(row => {
+    const info = JSON.parse(row.dataset.item || '{}');
+    if (info.doc !== null) TREE_SEARCH.push({ n: info.n, t: info.t, doc: info.doc, kw: info.kw, _row: row });
+  });
+}
+
+/* ══════════════ 图缩放 / 平移：自然尺寸渲染 + 适配 + 拖拽 + 滚轮 ══════════════ */
+const ZOOM_MIN = 0.35, ZOOM_MAX = 2.5;
+const zoom = Object.fromEntries(TABS.map(t => [t, { fit: true, scale: 1 }]));
+function naturalSize(tab) {
+  const svg = document.getElementById('box-' + tab).querySelector('svg');
+  if (!svg) return null;
+  let w = 0, h = 0;
+  const vba = svg.getAttribute('viewBox');
+  if (vba) {
+    const parts = vba.trim().split(/[\s,]+/).map(Number);
+    w = parts[2]; h = parts[3];
+  }
+  if (!w || !h) {
+    w = parseFloat(svg.getAttribute('width')) || svg.clientWidth;
+    h = parseFloat(svg.getAttribute('height')) || svg.clientHeight;
+    if (!w || !h) return null;
+    svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  }
+  return { svg, w, h };
+}
+function fitScale(tab, ns) {
+  const wrap = document.getElementById('wrap-' + tab);
+  /* 用 border-box 宽度而非 clientWidth：滚动条出现/消失时适配比例不抖动 */
+  const avail = Math.max(240, wrap.getBoundingClientRect().width - 74);
+  return Math.min(1, avail / ns.w);
+}
+function currentScale(tab) {
+  const ns = naturalSize(tab);
+  if (!ns) return 1;
+  return zoom[tab].fit ? fitScale(tab, ns) : zoom[tab].scale;
+}
+function applyZoom(tab) {
+  const ns = naturalSize(tab);
+  if (!ns) return;
+  const scale = zoom[tab].fit ? fitScale(tab, ns) : zoom[tab].scale;
+  zoom[tab].scale = scale;
+  ns.svg.setAttribute('preserveAspectRatio', 'xMidYMin meet');
+  ns.svg.style.width = (ns.w * scale) + 'px';
+  ns.svg.style.height = (ns.h * scale) + 'px';
+  const lab = document.getElementById('zoomVal');
+  const cur = document.querySelector('.tab.on');
+  if (lab && cur && cur.dataset.tab === tab) lab.textContent = Math.round(scale * 100) + '%';
+}
+/* 以视口坐标 anchor 为锚点缩放：缩放前后光标/中心点下的图内容保持不动 */
+function setScale(tab, scale, anchor) {
+  const ns = naturalSize(tab);
+  if (!ns) return;
+  const wrap = document.getElementById('wrap-' + tab);
+  const before = ns.svg.getBoundingClientRect();
+  const ax = anchor && before.width ? (anchor.x - before.left) / before.width : 0;
+  const ay = anchor && before.height ? (anchor.y - before.top) / before.height : 0;
+  /* 下限取「绝对下限」与「适配比例」的较小值：大图也能用滚轮退回全貌 */
+  const fit = fitScale(tab, ns);
+  const lower = Math.min(ZOOM_MIN, fit);
+  const next = Math.min(ZOOM_MAX, Math.max(lower, scale));
+  /* 大图缩到底时直接切回适配模式，避免滚动条宽度引起的比例漂移 */
+  if (fit < ZOOM_MIN && next <= lower + 0.0005) zoom[tab].fit = true;
+  else { zoom[tab].fit = false; zoom[tab].scale = next; }
+  applyZoom(tab);
+  if (anchor) {
+    const after = ns.svg.getBoundingClientRect();
+    wrap.scrollLeft += (after.left + ax * after.width) - anchor.x;
+    wrap.scrollTop += (after.top + ay * after.height) - anchor.y;
+  }
+  requestAnimationFrame(() => { if (activeTree) drawLinks(); });
+}
+function centerAnchor(tab) {
+  const r = document.getElementById('wrap-' + tab).getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+document.querySelectorAll('.zbtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tab = document.querySelector('.tab.on').dataset.tab;
+    const z = btn.dataset.z;
+    if (z === 'fit') {
+      zoom[tab].fit = true;
+      applyZoom(tab);
+      requestAnimationFrame(() => { if (activeTree) drawLinks(); });
+    } else if (z === '100') setScale(tab, 1, centerAnchor(tab));
+    else if (z === 'in') setScale(tab, currentScale(tab) * 1.25, centerAnchor(tab));
+    else if (z === 'out') setScale(tab, currentScale(tab) / 1.25, centerAnchor(tab));
+  });
+});
+
+/* 滚轮缩放：以光标为锚点做指数步进；按住 Shift/Alt 时保留原生滚动，源码区始终原生滚动 */
+document.querySelectorAll('.diagram-wrap').forEach(wrap => {
+  const tab = wrap.id.slice('wrap-'.length);
+  wrap.addEventListener('wheel', e => {
+    if (e.shiftKey || e.altKey) return;
+    if (e.target.closest && e.target.closest('details.src')) return;
+    if (!naturalSize(tab)) return;
+    e.preventDefault();
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? wrap.clientHeight : 1;
+    const step = Math.min(1.6, Math.max(0.6, Math.exp(-e.deltaY * unit * 0.0015)));
+    setScale(tab, currentScale(tab) * step, { x: e.clientX, y: e.clientY });
+  }, { passive: false });
+
+  /* 左键按住拖拽平移：位移超过 4px 才判定为拖拽，避免吞掉图节点的点击联动 */
+  let dragging = false, moved = false, suppressClick = false;
+  let sx = 0, sy = 0, sl = 0, st = 0;
+  wrap.addEventListener('click', e => {
+    if (!suppressClick) return;
+    e.preventDefault(); e.stopPropagation(); suppressClick = false;
+  }, true);
+  wrap.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || (e.target.closest && e.target.closest('details.src'))) return;
+    dragging = true; moved = false; suppressClick = false;
+    sx = e.clientX; sy = e.clientY;
+    sl = wrap.scrollLeft; st = wrap.scrollTop;
+  });
+  window.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return;
+    if (!moved) {
+      moved = true;
+      wrap.classList.add('panning');
+      const sel = window.getSelection();
+      if (sel) sel.removeAllRanges();
+    }
+    wrap.scrollLeft = sl - dx;
+    wrap.scrollTop = st - dy;
+  });
+  const endPan = () => {
+    if (!dragging) return;
+    dragging = false;
+    wrap.classList.remove('panning');
+    /* 不设超时清除：由紧随其后的 click 消费，或由下一次 pointerdown 重置，
+       避免浏览器延迟派发 click 时抑制失效、导致拖拽结束误触发节点联动 */
+    if (moved) suppressClick = true;
+  };
+  window.addEventListener('pointerup', endPan);
+  window.addEventListener('pointercancel', endPan);
+});
+
+/* ══════════════ 标签切换 / 事件 ══════════════ */
+function selectTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab === name));
+  document.querySelectorAll('.diagram-wrap').forEach(w => w.classList.remove('on'));
+  document.getElementById('wrap-' + name).classList.add('on');
+  requestAnimationFrame(() => { applyZoom(name); if (activeTree) drawLinks(); });
+}
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => selectTab(tab.dataset.tab));
+});
+document.getElementById('clearBtn').addEventListener('click', () => setActive(null, false));
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { setActive(null, false); searchInput.blur(); }
+  if (tourStep >= 0) {
+    if (e.key === 'ArrowRight') goStep(tourStep + 1);
+    if (e.key === 'ArrowLeft') goStep(tourStep - 1);
+  }
+});
+window.addEventListener('resize', () => {
+  TABS.forEach(applyZoom);
+  if (activeTree) drawLinks();
+});
+document.querySelectorAll('.diagram-wrap').forEach(w => w.addEventListener('scroll', () => { if (activeTree) drawLinks(); }));
+/* 监听必须挂在真实滚动容器上：#treePanel/#docPanel 是 overflow:hidden 的外壳，
+   scroll 事件不冒泡，挂外壳永远收不到（issue #3）；真正滚动的是内部 #tree/#docs（overflow:auto） */
+document.getElementById('docs').addEventListener('scroll', () => { if (activeTree) drawLinks(); });
+document.getElementById('tree').addEventListener('scroll', () => { if (activeTree) drawLinks(); });
+document.getElementById('treePanel').addEventListener('mouseleave', () => { if (!pinned) setActive(null, false); });
+
+/* ══════════════ 主线导航条引擎（数据 TOUR 在文件头数据区） ══════════════ */
+
+function buildRail() {
+  const rail = document.getElementById('railSteps');
+  rail.innerHTML = TOUR.map((s, k) =>
+    `<button class="rstep" data-k="${k}" title="${s.title}"><span class="rs-n">${k === TOUR.length - 1 ? '🎉' : k + 1}</span><span>${s.sl}</span></button>`
+  ).join('');
+  rail.querySelectorAll('.rstep').forEach(b => b.addEventListener('click', () => startTourAt(+b.dataset.k)));
+}
+function updateRail(cur) {
+  document.querySelectorAll('.rstep').forEach(b => {
+    const k = +b.dataset.k;
+    b.classList.toggle('cur', k === cur);
+    b.classList.toggle('done', cur >= 0 && k < cur);
+  });
+}
+
+/* ══════════════ 导览引擎 ══════════════ */
+let tourStep = -1;
+const tourEl = document.getElementById('tour');
+function findRowByName(part) {
+  return [...document.querySelectorAll('.tnode')].find(r => {
+    const nameEl = r.querySelector('.name');
+    return nameEl && nameEl.textContent.includes(part);
+  });
+}
+function goStep(i) {
+  if (i < 0 || i >= TOUR.length) return endTour();
+  tourStep = i;
+  const s = TOUR[i];
+  document.body.classList.add('touring');
+  tourEl.classList.add('show');
+  document.getElementById('tourNum').textContent = `${i + 1} / ${TOUR.length}`;
+  document.getElementById('tourTitle').textContent = s.title;
+  document.getElementById('tourText').innerHTML = s.text;
+  document.getElementById('tourHint').textContent = s.tree ? '已联动：左树 ⇄ 图 ⇄ 右侧说明' : '看中间的全景地图';
+  document.getElementById('tourPrev').style.visibility = i === 0 ? 'hidden' : 'visible';
+  document.getElementById('tourNext').textContent = i === TOUR.length - 1 ? '完成 ✓' : '下一站 →';
+  const dots = document.getElementById('tourDots');
+  dots.innerHTML = TOUR.map((_, k) => `<i class="${k < i ? 'done' : k === i ? 'cur' : ''}" data-k="${k}"></i>`).join('');
+  dots.querySelectorAll('i').forEach(d => d.addEventListener('click', () => goStep(+d.dataset.k)));
+  updateRail(i);
+
+  selectTab(s.tab);
+  if (s.tree) {
+    const row = findRowByName(s.tree);
+    if (row) {
+      expandAncestors(row);
+      setActive(row, true);
+      if (row.scrollIntoView) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  } else {
+    setActive(null, false);
+  }
+}
+function startTourAt(i) { goStep(Math.max(0, Math.min(i, TOUR.length - 1))); }
+function startTour() { goStep(0); }
+function endTour() {
+  tourStep = -1;
+  tourEl.classList.remove('show');
+  document.body.classList.remove('touring');
+  updateRail(-1);
+}
+document.getElementById('tourBtn').addEventListener('click', startTour);
+document.getElementById('tourClose').addEventListener('click', endTour);
+document.getElementById('tourPrev').addEventListener('click', () => goStep(tourStep - 1));
+document.getElementById('tourNext').addEventListener('click', () => goStep(tourStep + 1));
+
+/* 欢迎浮层：首次访问给一个明确起点 */
+const welcomeMask = document.getElementById('welcomeMask');
+try { if (localStorage.getItem(WELCOME_KEY)) welcomeMask.classList.add('hide'); } catch (e) {}
+function dismissWelcome() {
+  welcomeMask.classList.add('hide');
+  try { localStorage.setItem(WELCOME_KEY, '1'); } catch (e) {}
+}
+document.getElementById('wStart').addEventListener('click', () => { dismissWelcome(); startTour(); });
+document.getElementById('wFree').addEventListener('click', dismissWelcome);
+
+/* ══════════════ 时序图变更配色后处理 ══════════════
+   mermaid 时序图不支持按参与者上色，渲染后按 🆕 标记补色：
+   含 🆕 的 actor → 绿色（新增）；否则 → 灰色（复用/外部） */
+function styleSequence(box) {
+  box.querySelectorAll('g.actor').forEach(g => {
+    const t = g.textContent || '';
+    const rect = g.querySelector('rect');
+    if (!rect) return;
+    if (t.includes('🆕')) {
+      rect.style.fill = '#e6f6ec'; rect.style.stroke = '#17a45f'; rect.style.strokeWidth = '2px';
+    } else {
+      rect.style.fill = '#f1f3f6'; rect.style.stroke = '#9aa3af'; rect.style.strokeWidth = '1.2px';
+      rect.style.strokeDasharray = '5 3';
+    }
+  });
+  box.querySelectorAll('g.note').forEach(g => {
+    const r = g.querySelector('rect');
+    if (r) { r.style.rx = '6px'; }
+  });
+}
+
+/* ══════════════ 启动 ══════════════ */
+renderTree();
+renderDocs();
+indexRows();
+buildRail();
+try {
+  for (const name of TABS) {
+    const src = { over: OVER_SRC, seq: SEQ_SRC, flow: FLOW_SRC }[name];
+    if (!src) continue;
+    const rendered = await mermaid.render('svg-' + name, src);
+    document.getElementById('box-' + name).innerHTML = rendered.svg;
+    styleSequence(document.getElementById('box-' + name));
+  }
+  bindReverse();
+  TABS.forEach(applyZoom);
+} catch (err) {
+  const firstBox = document.getElementById('box-' + TABS[0]);
+  if (firstBox) firstBox.innerHTML =
+    '<div class="box-err">Mermaid 渲染失败：<br>' + String(err).replace(/</g, '&lt;') + '</div>';
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,295 @@
+{
+  "meta": {
+    "title": "pipeline.py · 教学章节全景图",
+    "h1": "pipeline.py 编排器教学",
+    "subtitle": "本章主题：如何用 <b>Pipeline</b> 把 7 个阶段串成一条可调度的 RAG 流水线 · 装配 → 配置 → 离线/在线主链路 → 分支 → preset",
+    "stats": [
+      { "num": "1", "lbl": "编排器 Pipeline" },
+      { "num": "2", "lbl": "配置 dataclass", "amber": true },
+      { "num": "7", "lbl": "流水线阶段" }
+    ],
+    "project": "src/pipeline.py",
+    "docCap": "章节说明 · 定位 → 设计 → 坑",
+    "slug": "rag-pipeline-s1",
+    "welcomeSub": "pipeline.py 编排器教学 · 装配 → 配置 → 离线/在线主链路 → 分支 → preset · 绿色=本章重点，灰色=复用 Worker",
+    "welcomeItems": [
+      { "icon": "🧭", "html": "点上方<b>「跟着流程走」</b>，9 站从装配走到 preset，每站末尾都有一道<b>思考题 / 动手验证</b>" },
+      { "icon": "🔍", "html": "左侧工程树按 <b>装配 → 配置 → 编排 → preset → 复用 → 练习</b> 六段组织，支持搜索与展开折叠" },
+      { "icon": "🔗", "html": "绿色 = 本章新增（编排层），灰色 = 复用（阶段 Worker），橙色 = 可选分支 / preset；三栏点击联动" }
+    ]
+  },
+  "tabs": ["over", "seq", "flow"],
+  "over": "flowchart LR\n    classDef newc fill:#e6f6ec,stroke:#17a45f,stroke-width:2px,color:#0b5c3a\n    classDef oldc fill:#f1f3f6,stroke:#9aa3af,stroke-width:1.2px,stroke-dasharray:5 3,color:#5a6068\n    classDef extc fill:#eaf1fe,stroke:#3574f0,stroke-width:1.6px,color:#1c3257\n    classDef warnc fill:#fff4e0,stroke:#e6a23c,stroke-width:1.6px,color:#7a4101\n\n    subgraph ENTRY[\"① 装配入口\"]\n        MAIN[\"__main__ · if __name__<br/>Pipeline(root_path, run_config=max_nst_o3m_config)\"]\n    end\n    subgraph CFG[\"② 核心抽象 · 配置\"]\n        PCFG[\"PipelineConfig<br/>由 root_path 派生全部路径<br/>_initialize_paths()\"]\n        RCFG[\"RunConfig<br/>运行开关 · field(default_factory=…)<br/>读 .env 兜底\"]\n    end\n    subgraph PIPE[\"③ 编排器 Pipeline\"]\n        PL[\"Pipeline<br/>__init__() 装配 + _convert_json_to_csv_if_needed() 兜底\"]\n        OFFLINE[\"process_parsed_reports()<br/>离线 4 阶段编排\"]\n        ONLINE[\"process_questions()<br/>在线问答编排\"]\n        PARSE[\"parse_pdf_reports()<br/>并行 / 顺序\"]\n        SER[\"serialize_tables()<br/>可选表格序列化\"]\n        IDX[\"create_vector_dbs() / create_bm25_db()<br/>建索引\"]\n    end\n    subgraph WORK[\"④ 复用 · 阶段 Worker\"]\n        WPDF[\"PDFParser\"]\n        WTAB[\"TableSerializer\"]\n        WMERGE[\"PageTextPreparation\"]\n        WSPLIT[\"TextSplitter\"]\n        WVEC[\"VectorDBIngestor\"]\n        WBM[\"BM25Ingestor\"]\n        WQAP[\"QuestionsProcessor\"]\n    end\n    subgraph PRESET[\"⑤ preset 配置\"]\n        CFGS[\"configs 字典<br/>base / pdr / max / max_nst_o3m …\"]\n    end\n\n    MAIN --> PL\n    MAIN --> RCFG\n    PL --> PCFG\n    PL --> OFFLINE\n    PL --> ONLINE\n    PL --> PARSE\n    PL -. 可选 .-> SER\n    PL --> IDX\n    OFFLINE --> WMERGE\n    OFFLINE --> WSPLIT\n    OFFLINE --> WVEC\n    PARSE --> WPDF\n    SER --> WTAB\n    IDX --> WVEC\n    IDX --> WBM\n    ONLINE --> WQAP\n    CFGS -. 选取 .-> MAIN\n    RCFG -. 驱动开关 .-> ONLINE\n\n    class MAIN,PCFG,RCFG,PL,OFFLINE,ONLINE,PARSE,IDX newc\n    class SER warnc\n    class CFGS oldc\n    class WPDF,WTAB,WMERGE,WSPLIT,WVEC,WBM,WQAP oldc",
+  "seq": "sequenceDiagram\n    autonumber\n    participant MAIN as __main__\n    participant PL as Pipeline\n    participant CFG as PipelineConfig\n    participant W1 as PageTextPreparation / TextSplitter\n    participant W2 as VectorDBIngestor\n    participant QP as QuestionsProcessor\n\n    MAIN->>PL: Pipeline(root_path, run_config=max_nst_o3m_config)\n    PL->>CFG: _initialize_paths(root_path, subset_name, questions_file_name, pdf_reports_dir_name)\n    CFG-->>PL: databases / debug_data / 各阶段目录\n    PL->>PL: _convert_json_to_csv_if_needed() 兜底\n    MAIN->>PL: process_parsed_reports() 离线索引\n    PL->>PL: merge_reports()\n    PL->>W1: PageTextPreparation.process_reports()\n    PL->>PL: export_reports_to_markdown()\n    PL->>PL: chunk_reports()\n    PL->>W1: TextSplitter.split_all_reports()\n    PL->>PL: create_vector_dbs()\n    PL->>W2: VectorDBIngestor.process_reports()\n    MAIN->>PL: process_questions() 在线问答\n    PL->>PL: _get_next_available_filename(answers.json)\n    PL->>QP: QuestionsProcessor(vector_db_dir, documents_dir, questions_file_path, new_challenge_pipeline=True, …RunConfig 开关)\n    QP->>QP: process_all_questions(output_path)\n    QP-->>PL: 统计 total / error / N/A / success\n    PL-->>MAIN: 答案写入 answers.json（或 answers_01.json）",
+  "flow": "flowchart TB\n    classDef newc fill:#e6f6ec,stroke:#17a45f,stroke-width:2px,color:#0b5c3a\n    classDef oldc fill:#f1f3f6,stroke:#9aa3af,stroke-width:1.2px,stroke-dasharray:5 3,color:#5a6068\n    classDef warnc fill:#fff4e0,stroke:#e6a23c,stroke-width:1.6px,color:#7a4101\n    classDef errc fill:#fdecec,stroke:#e5484d,stroke-width:1.8px,color:#b3232a\n\n    ENTER[\"process_questions() 在线主链路\"]\n    SWITCH[\"RunConfig 开关：llm_reranking / parent_document_retrieval / top_n_retrieval / parallel_requests\"]\n    BUILD[\"构造 QuestionsProcessor(vector_db_dir, documents_dir, questions_file_path, new_challenge_pipeline=True, …)\"]\n    FNAME[\"_get_next_available_filename(self.paths.answers_file_path)\"]\n    EXISTS{\"answers.json 已存在 ?\"}\n    NEXT[\"answers_01.json / answers_02.json …\"]\n    ASIS[\"直接用 answers.json\"]\n    RUN[\"processor.process_all_questions(output_path, submission_file, team_email, submission_name, pipeline_details)\"]\n    SAVE[\"写 answers*.json + answers*_debug.json（含 answer_details + 统计）\"]\n    PRINT[\"打印 Answers saved to …\"]\n    REUSE[\"内部复用：QuestionsProcessor → VectorRetriever → LLMReranker → APIProcessor → Ollama\"]\n\n    ENTER --> SWITCH --> BUILD --> FNAME --> EXISTS\n    EXISTS -->|是| NEXT --> RUN\n    EXISTS -->|否| ASIS --> RUN\n    RUN --> SAVE --> PRINT\n    RUN -. 内部复用 .-> REUSE\n\n    class ENTER,BUILD,FNAME,RUN,SAVE newc\n    class EXISTS,ASIS,NEXT oldc\n    class SWITCH warnc\n    class PRINT,REUSE oldc",
+  "tree": [
+    {
+      "t": "module",
+      "n": "pipeline.py · 教学章节",
+      "children": [
+        {
+          "t": "pkg",
+          "n": "① 装配入口",
+          "children": [
+            {
+              "t": "class",
+              "n": "__main__",
+              "b": "new",
+              "doc": "main",
+              "kw": ["__main__"],
+              "children": [
+                { "t": "method", "n": "Pipeline(root_path, run_config=max_nst_o3m_config)", "doc": "main", "kw": ["max_nst_o3m_config"] }
+              ]
+            }
+          ]
+        },
+        {
+          "t": "pkg",
+          "n": "② 核心抽象 · 配置",
+          "children": [
+            {
+              "t": "class",
+              "n": "PipelineConfig",
+              "b": "new",
+              "doc": "cfg",
+              "kw": ["PipelineConfig"],
+              "children": [
+                { "t": "method", "n": "_initialize_paths()：由 root_path 派生全部路径", "doc": "cfg", "kw": ["_initialize_paths"] }
+              ]
+            },
+            {
+              "t": "class",
+              "n": "RunConfig",
+              "b": "new",
+              "doc": "runcfg",
+              "kw": ["RunConfig"],
+              "children": [
+                { "t": "method", "n": "field(default_factory=get_llm_provider)：读 .env 兜底", "doc": "runcfg", "kw": ["default_factory"] }
+              ]
+            }
+          ]
+        },
+        {
+          "t": "pkg",
+          "n": "③ 编排器 Pipeline",
+          "children": [
+            {
+              "t": "class",
+              "n": "Pipeline",
+              "b": "new",
+              "doc": "pipeline",
+              "kw": ["Pipeline"],
+              "children": [
+                { "t": "method", "n": "__init__()：装配 + _convert_json_to_csv_if_needed()", "doc": "pipeline", "kw": ["__init__", "_convert_json_to_csv_if_needed"] },
+                { "t": "method", "n": "process_parsed_reports()：离线 4 阶段", "doc": "offline", "kw": ["process_parsed_reports"] },
+                { "t": "method", "n": "process_questions() + _get_next_available_filename()：在线问答", "doc": "online", "kw": ["process_questions"] },
+                { "t": "method", "n": "parse_pdf_reports()：并行/顺序分发", "doc": "parse", "kw": ["parse_pdf_reports"] },
+                { "t": "method", "n": "serialize_tables()：可选表格序列化", "doc": "serialize", "kw": ["serialize_tables"] },
+                { "t": "method", "n": "create_vector_dbs() / create_bm25_db()：建索引", "doc": "index", "kw": ["create_vector_dbs", "create_bm25_db"] }
+              ]
+            }
+          ]
+        },
+        {
+          "t": "pkg",
+          "n": "④ 组装收尾 · preset",
+          "children": [
+            {
+              "t": "class",
+              "n": "configs（13 个 RunConfig preset）",
+              "b": "mod",
+              "doc": "presets",
+              "kw": ["configs"],
+              "children": [
+                { "t": "method", "n": "max_nst_o3m_config：注释标注的最佳配置", "doc": "presets", "kw": ["max_nst_o3m_config"] }
+              ]
+            }
+          ]
+        },
+        {
+          "t": "pkg",
+          "n": "⑤ 复用 · 阶段 Worker",
+          "children": [
+            {
+              "t": "class",
+              "n": "PDFParser / TableSerializer / …",
+              "b": "old",
+              "doc": "reuse",
+              "kw": ["PDFParser", "TableSerializer", "QuestionsProcessor"]
+            }
+          ]
+        },
+        {
+          "t": "pkg",
+          "n": "⑥ 练习",
+          "children": [
+            {
+              "t": "class",
+              "n": "动手验证（实验清单）",
+              "doc": "verify",
+              "kw": ["process_questions"]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "docs": [
+    {
+      "id": "main",
+      "b": "新增",
+      "t": "__main__ — 装配入口",
+      "f": "src/pipeline.py · 436-477 行",
+      "body": "<ul><li><b>定位</b>：本章唯一可跑入口，把 root_path + preset 交给 Pipeline。</li><li><b>关键设计</b>：<code>root_path = here() / 'data' / 'test_set'</code>；<code>Pipeline(root_path, run_config=max_nst_o3m_config)</code>；随后 7 个阶段方法逐段调用。</li><li><b>坑</b>：7 个阶段方法当前全部处于「已调用」状态，直接 <code>python src/pipeline.py</code> 会从头跑全流程——只想跑某段需注释掉其余。</li></ul>"
+    },
+    {
+      "id": "cfg",
+      "b": "新增",
+      "t": "PipelineConfig — 路径配置 dataclass",
+      "f": "src/pipeline.py · 21-47 行",
+      "body": "<ul><li><b>定位</b>：把 root_path 派生为全部目录路径，供各阶段读写。</li><li><b>关键设计</b>：<code>serialized=True</code> 时 databases / merged / markdown 目录名加 <code>_ser_tab</code> 后缀；<code>_initialize_paths</code> 是唯一构造入口。</li><li><b>坑</b>：类上挂了 <code>@dataclass</code> 却手写 <code>__init__</code>（装饰器实际不生成字段）；改路径结构要同步改这里，阶段 worker 只读不写路径。</li></ul>"
+    },
+    {
+      "id": "runcfg",
+      "b": "新增",
+      "t": "RunConfig — 运行开关 dataclass",
+      "f": "src/pipeline.py · 49-67 行",
+      "body": "<ul><li><b>定位</b>：一次运行的所有行为开关。</li><li><b>关键设计</b>：<code>field(default_factory=get_llm_provider)</code> 让 api_provider / answering_model 默认从 .env 读（惰性求值）；共 14 个字段（llm_reranking / top_n_retrieval / parallel_requests …）。</li><li><b>坑</b>：换模型只改 .env 即可，preset 里通常不硬编码模型名。</li></ul>"
+    },
+    {
+      "id": "pipeline",
+      "b": "新增",
+      "t": "Pipeline — 编排器",
+      "f": "src/pipeline.py · 69-284 行",
+      "body": "<ul><li><b>定位</b>：唯一编排器，7 个阶段方法 + 2 条编排主链。</li><li><b>关键设计</b>：<code>__init__</code> 里 <code>_initialize_paths</code> + <code>_convert_json_to_csv_if_needed</code>；每个阶段方法独立，可单独调用。</li><li><b>坑</b>：<code>run_config: RunConfig = RunConfig()</code> 是默认参数实例（dataclass 不被修改，实际安全）；各阶段靠 <code>self.paths</code> 共享路径，方法间不传参。</li></ul>"
+    },
+    {
+      "id": "offline",
+      "b": "新增",
+      "t": "process_parsed_reports() — 离线主链路",
+      "f": "src/pipeline.py · 214-235 行",
+      "body": "<ul><li><b>定位</b>：把「已解析的 JSON 报告」走完 merge → markdown → chunk → vector。</li><li><b>关键设计</b>：4 步固定顺序——<code>merge_reports → export_reports_to_markdown → chunk_reports → create_vector_dbs</code>，每步打印进度。</li><li><b>坑</b>：假设 PDF 已解析好（不重复解析）；换嵌入模型后旧 faiss 索引不能复用，需删掉 databases 重建。</li></ul>"
+    },
+    {
+      "id": "online",
+      "b": "新增",
+      "t": "process_questions() — 在线主链路",
+      "f": "src/pipeline.py · 258-284 行",
+      "body": "<ul><li><b>定位</b>：把 RunConfig 开关透传给 QuestionsProcessor 跑问答。</li><li><b>关键设计</b>：先 <code>_get_next_available_filename</code> 防覆盖，再构造 QuestionsProcessor（传 11 个参数）。</li><li><b>坑</b>：<code>new_challenge_pipeline=True</code> 固定，影响问题字段读取（text / kind 而非 question / schema）。</li></ul>"
+    },
+    {
+      "id": "parse",
+      "b": "新增",
+      "t": "parse_pdf_reports() — PDF 解析",
+      "f": "src/pipeline.py · 113-212 行",
+      "body": "<ul><li><b>定位</b>：把 PDF 年报解析为结构化 JSON（数据流起点）。</li><li><b>关键设计</b>：<code>parse_pdf_reports(parallel=True)</code> 分发到 parallel / sequential；parallel 走 <code>parse_and_export_parallel(chunk_size, max_workers)</code>。</li><li><b>坑</b>：解析最吃 GPU / 内存；sequential 保留用于单份调试。</li></ul>"
+    },
+    {
+      "id": "serialize",
+      "b": "调整",
+      "t": "serialize_tables() — 可选表格序列化",
+      "f": "src/pipeline.py · 149-155 行",
+      "body": "<ul><li><b>定位</b>：把表格交给 LLM 序列化为信息块（可选分支）。</li><li><b>关键设计</b>：<code>TableSerializer().process_directory_parallel(max_workers)</code>；仅 <code>use_serialized_tables=True</code> 的 preset 走这条。</li><li><b>坑</b>：本地模型推理慢，max_workers 默认 1；表格质量是年报问答的加分项但非必需。</li></ul>"
+    },
+    {
+      "id": "index",
+      "b": "新增",
+      "t": "create_vector_dbs() / create_bm25_db() — 建索引",
+      "f": "src/pipeline.py · 190-206 行",
+      "body": "<ul><li><b>定位</b>：把分块文本建成向量库 / BM25 索引。</li><li><b>关键设计</b>：VectorDBIngestor 用 bge-m3 + faiss；BM25Ingestor 用 rank_bm25。</li><li><b>坑</b>：<code>use_bm25_db</code> 默认 False，主链路只用向量库；bm25 索引按 sha1_name 命名 .pkl。</li></ul>"
+    },
+    {
+      "id": "presets",
+      "b": "调整",
+      "t": "configs — 13 个 preset 清单",
+      "f": "src/pipeline.py · 287-429 行",
+      "body": "<ul><li><b>定位</b>：预置的运行参数组合（实验记录 / 复现）。</li><li><b>关键设计</b>：<code>configs</code> 字典只暴露 9 个给 CLI；<code>max_nst_o3m</code> 是注释标注的最佳配置；每个 preset 带 submission_name / pipeline_details 便于提交区分。</li><li><b>坑</b>：preset 名要同时加进 main.py 的 <code>--config</code> choice 才会在 CLI 可选。</li></ul>"
+    },
+    {
+      "id": "reuse",
+      "b": "复用",
+      "t": "复用 · 阶段 Worker",
+      "f": "PDFParser / TableSerializer / PageTextPreparation / TextSplitter / VectorDBIngestor / BM25Ingestor / QuestionsProcessor",
+      "body": "<ul><li><b>定位</b>：pipeline.py 只负责编排，具体工作交给这些既有类。</li><li><b>关键设计</b>：每个阶段方法 new 一个 worker 并传目录；worker 不感知其他阶段。</li><li><b>坑</b>：pipeline.py 不 import 检索 / 重排细节——那是 QuestionsProcessor 内部的事，编排层只需「调用 + 传参」。</li></ul>"
+    },
+    {
+      "id": "verify",
+      "b": "测试",
+      "t": "动手验证 — 本章练习清单",
+      "f": "src/pipeline.py · 实验",
+      "body": "<ul><li>① 只保留 <code>process_parsed_reports()</code>（注释其余），观察 4 阶段输出目录与打印。</li><li>② 跑两次 <code>process_questions()</code>，看是否生成 <code>answers_01.json</code>。</li><li>③ 把 .env 的 <code>OLLAMA_MODEL</code> 改成不存在的值，看在线链路在哪一步报错。</li><li>④ 切换 <code>use_serialized_tables</code>，观察 databases 目录名是否加 <code>_ser_tab</code> 后缀。</li></ul>"
+    }
+  ],
+  "tour": [
+    {
+      "tab": "over",
+      "tree": null,
+      "sl": "全景鸟瞰",
+      "title": "第 1 站 · 全景鸟瞰",
+      "text": "本章只讲一件事：<b>pipeline.py 如何把 7 个阶段串成一条流水线</b>。绿色 = 本章编排层（__main__ / Pipeline / 两个配置类 / 阶段方法），灰色 = 复用 Worker，橙色 = 可选分支。思考题：为什么「编排」和「具体解析/检索」要分成两层？"
+    },
+    {
+      "tab": "over",
+      "tree": "__main__",
+      "sl": "装配起点",
+      "title": "第 2 站 · 装配起点",
+      "text": "<code>__main__</code> 是唯一入口：<code>root_path</code> 指向数据集，<code>run_config=max_nst_o3m_config</code> 选 preset，再 <code>Pipeline(root_path, run_config)</code> 装配。动手验证：注释掉除 <code>parse_pdf_reports_sequential()</code> 外的所有阶段，看只跑解析。"
+    },
+    {
+      "tab": "over",
+      "tree": "PipelineConfig",
+      "sl": "核心抽象·路径",
+      "title": "第 3 站 · 核心抽象：PipelineConfig",
+      "text": "<code>PipelineConfig</code> 把 <code>root_path</code> 派生为全部目录：databases / debug_data / 01_parsed_reports / 02_merged_reports … 思考题：为什么 <code>serialized=True</code> 时目录名要加 <code>_ser_tab</code> 后缀？"
+    },
+    {
+      "tab": "over",
+      "tree": "RunConfig",
+      "sl": "核心抽象·开关",
+      "title": "第 4 站 · 核心抽象：RunConfig",
+      "text": "<code>RunConfig</code> 是一次运行的行为开关，<code>field(default_factory=get_llm_provider)</code> 让模型/供应商从 .env 惰性读取。思考题：为什么 api_provider 用 default_factory 而不是直接写死 <code>get_llm_provider()</code>？"
+    },
+    {
+      "tab": "seq",
+      "tree": "process_parsed_reports",
+      "sl": "主链路·离线",
+      "title": "第 5 站 · 主链路：离线索引",
+      "text": "切到时序图上半段：<code>process_parsed_reports()</code> 固定 4 步——merge_reports → export_reports_to_markdown → chunk_reports → create_vector_dbs。动手验证：跑完后在 debug_data / databases 里对照 4 个输出目录。"
+    },
+    {
+      "tab": "flow",
+      "tree": "process_questions",
+      "sl": "主链路·在线",
+      "title": "第 6 站 · 主链路：在线问答",
+      "text": "切到流程图：<code>process_questions()</code> 把 RunConfig 的 4 个开关（llm_reranking / parent_document_retrieval / top_n_retrieval / parallel_requests）透传给 QuestionsProcessor。动手验证：把 <code>parallel_requests</code> 改成 3 看是否并发。"
+    },
+    {
+      "tab": "flow",
+      "tree": "_get_next_available_filename",
+      "sl": "分支·覆盖保护",
+      "title": "第 7 站 · 分支：覆盖保护",
+      "text": "<code>_get_next_available_filename</code> 是本章唯一的「分支」：answers.json 已存在时返回 answers_01.json，避免覆盖上次结果。思考题：如果换成固定文件名直接覆盖，会丢什么？"
+    },
+    {
+      "tab": "flow",
+      "tree": "serialize_tables",
+      "sl": "可选分支",
+      "title": "第 8 站 · 可选分支：表格序列化",
+      "text": "<code>serialize_tables()</code> 只在 <code>use_serialized_tables=True</code> 的 preset 下走（橙色），把表格交给 LLM 序列化。思考题：为什么默认 preset <code>no_ser_tab</code> 不走这条？提示——看本地模型推理成本。"
+    },
+    {
+      "tab": "over",
+      "tree": "configs",
+      "sl": "组装收尾·preset",
+      "title": "第 9 站 · 组装收尾：preset",
+      "text": "13 个 <code>RunConfig</code> preset 是实验记录：<code>max_nst_o3m</code> 注释标注为最佳配置。思考题：新增一个「全量上下文」preset 需要改哪两处（pipeline.py 的 configs + main.py 的 choice）？"
+    },
+    {
+      "tab": "over",
+      "tree": null,
+      "sl": "自由探索",
+      "title": "🎉 导览完成",
+      "text": "现在自由探索：左树 / 中图 / 右侧卡三方联动。右栏「动手验证」卡有 4 个实验，跟着做完就真正懂了 pipeline.py。导览可随时从顶栏「🧭 跟流程走一遍」重来。"
+    }
+  ]
+}
