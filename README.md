@@ -1,9 +1,9 @@
 # RAG 企业财报智能问答系统
 
-> 基于检索增强生成（RAG）的企业财报智能问答系统。将 PDF 解析换轨为 **MinerU 云 API**，生成与嵌入模型支持**本地 Ollama / 云端千问 DashScope** 一键切换（默认云端 `qwen-plus` 生成 + `text-embedding-v3` 嵌入，可切回本地 `qwen2.5:7b` + `bge-m3`），并针对**中芯国际年报/券商研报**完成中文本地化适配，使用 Streamlit 可视化问答界面。
+> 基于检索增强生成（RAG）的企业财报智能问答系统。将 PDF 解析为 **MinerU 云 API**，生成与嵌入模型支持**本地 Ollama / 云端千问 DashScope** 一键切换（默认云端 `qwen-plus` 生成 + `text-embedding-v3` 嵌入，可切回本地 `qwen2.5:7b` + `bge-m3`），并针对**年报/券商研报**完成中文本地化适配，使用 Streamlit 可视化问答界面。
 
 - MinerU 云 API 解析 PDF → Markdown
-- FAISS 向量检索（bge-m3 本地嵌入 / text-embedding-v3 云端嵌入）+ 可选 BM25 关键词检索
+- FAISS 向量检索（bge-m3 本地嵌入 / text-embedding-v3 云端嵌入）+ BM25 关键词检索
 - 父文档检索（Parent Document Retrieval）两阶段召回
 - LLM 重排（LLM 相关性打分与向量距离加权融合）
 - 思维链（CoT）+ Pydantic 结构化输出
@@ -84,7 +84,7 @@ python ..\..\main.py process-questions --config max_nst_o3m
 
 本项目是一个面向**企业年报 / 券商研报**的检索增强生成（RAG）问答系统：给定一组 PDF 文档与若干问题，自动完成「解析 → 分块 → 索引 → 检索 → 生成 → 后处理」，输出带引用来源的结构化答案。
 
-当前默认数据为**中芯国际（688981）**财报研报集（`data/stock_data/`，含 9 份 PDF：1 份年报 + 7 份券商研报 + 1 份机构调研纪要）。模型默认使用**云端千问**（`qwen-plus` 生成 + `text-embedding-v3` 嵌入），也可在 `.env` 切回**本地 Ollama**（`qwen2.5:7b` + `bge-m3`）。
+当前默认数据为财报研报集（`data/stock_data/`，含 9 份 PDF：1 份年报 + 7 份券商研报 + 1 份机构调研纪要）。模型默认使用**云端千问**（`qwen-plus` 生成 + `text-embedding-v3` 嵌入），也可在 `.env` 切回**本地 Ollama**（`qwen2.5:7b` + `bge-m3`）。
 
 ### 2. 整体数据流
 
@@ -169,12 +169,6 @@ answers.json（另含 *_debug.json 调试详情）
 - `PipelineConfig`：**路径配置**，管理输入 PDF、中间产物（Markdown、分块 JSON）、向量库、答案文件等所有路径。
 - `RunConfig`：**算法策略配置**，控制是否启用父文档检索、LLM 重排、并发数、`top_n`、模型、是否全文上下文等。
 - `configs`：内置三档实验预设——`base`（基础检索）、`pdr`（+ 父文档检索）、`max`（+ 父文档检索 + LLM 重排），便于对比消融实验。
-
-### 6. 已知限制
-
-- MinerU 按行分块无「页码」语义，`relevant_pages` 字段退化为行号/占位值（当前默认数据为单文档问答，影响有限）。
-- 本地 `qwen2.5:7b` 在复杂 JSON Schema 约束下偶发不遵循结构，生产建议换更强模型或云端原生结构化输出 API。
-- `pdf_mineru.py` 中的 API key 属敏感信息，纳入版本管理时请及时轮换或改为环境变量读取。
 
 ## 运行截图
 ![alt text](image.png)
