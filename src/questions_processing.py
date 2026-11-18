@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from src.retrieval import VectorRetriever, HybridRetriever
 from src.api_requests import APIProcessor
-from src.ollama_client import get_llm_provider, get_ollama_model
+from src.model_client import get_llm_provider, get_default_model
 from tqdm import tqdm
 import pandas as pd
 import threading
@@ -40,7 +40,7 @@ class QuestionsProcessor:
         self.llm_reranking = llm_reranking
         self.llm_reranking_sample_size = llm_reranking_sample_size
         self.top_n_retrieval = top_n_retrieval
-        self.answering_model = answering_model or get_ollama_model()
+        self.answering_model = answering_model or get_default_model()
         self.parallel_requests = parallel_requests
         self.api_provider = api_provider or get_llm_provider()
         self.openai_processor = APIProcessor(provider=self.api_provider)
@@ -74,7 +74,12 @@ class QuestionsProcessor:
         # 根据公司名和页码列表，提取引用信息
         if self.subset_path is None:
             raise ValueError("subset_path is required for new challenge pipeline when processing references.")
-        self.companies_df = pd.read_csv(self.subset_path)
+        # 优先尝试 utf-8，失败则尝试 gbk（中文 Windows 常见编码）
+        try:
+            self.companies_df = pd.read_csv(self.subset_path, encoding='utf-8')
+        except UnicodeDecodeError:
+            print('警告：subset.csv 不是 utf-8 编码，自动尝试 gbk 编码...')
+            self.companies_df = pd.read_csv(self.subset_path, encoding='gbk')
 
         # Find the company's SHA1 from the subset CSV
         matching_rows = self.companies_df[self.companies_df['company_name'] == company_name]
@@ -169,20 +174,23 @@ class QuestionsProcessor:
         if not hasattr(self, 'companies_df'):
             if self.subset_path is None:
                 raise ValueError("subset_path must be provided to use subset extraction")
-            self.companies_df = pd.read_csv(self.subset_path)
-        
+            # 优先尝试 utf-8，失败则尝试 gbk（中文 Windows 常见编码）
+            try:
+                self.companies_df = pd.read_csv(self.subset_path, encoding='utf-8')
+            except UnicodeDecodeError:
+                print('警告：subset.csv 不是 utf-8 编码，自动尝试 gbk 编码...')
+                self.companies_df = pd.read_csv(self.subset_path, encoding='gbk')
+
         found_companies = []
         company_names = sorted(self.companies_df['company_name'].unique(), key=len, reverse=True)
-        
+
         for company in company_names:
-            escaped_company = re.escape(company)
-            
-            pattern = rf'{escaped_company}(?:\W|$)'
-            
-            if re.search(pattern, question_text, re.IGNORECASE):
+            # 只要公司名在问题文本中出现就算匹配（包含关系），
+            # 中文公司名后常紧跟中文字符，正则 \W 边界不适用，故使用包含匹配。
+            if company in question_text:
                 found_companies.append(company)
-                question_text = re.sub(pattern, '', question_text, flags=re.IGNORECASE)
-        
+                question_text = question_text.replace(company, '')
+
         return found_companies
 
     def process_question(self, question: str, schema: str):
@@ -235,7 +243,7 @@ class QuestionsProcessor:
             "success_count": success_count
         }
 
-    def process_questions_list(self, questions_list: List[dict], output_path: str = None, submission_file: bool = False, team_email: str = "", submission_name: str = "", pipeline_details: str = "") -> dict:
+    def process_questions_list(self, questions_list: List[dict], output_path: str = None, submission_file: bool = False, pipeline_details: str = "") -> dict:
         # 批量处理问题列表，支持并行与断点保存，返回处理结果和统计信息
         total_questions = len(questions_list)
         # 给每个问题加索引，便于后续答案详情定位
@@ -250,7 +258,7 @@ class QuestionsProcessor:
                 processed_question = self._process_single_question(question_data)
                 processed_questions.append(processed_question)
                 if output_path:
-                    self._save_progress(processed_questions, output_path, submission_file=submission_file, team_email=team_email, submission_name=submission_name, pipeline_details=pipeline_details)
+                    self._save_progress(processed_questions, output_path, submission_file=submission_file, pipeline_details=pipeline_details)
         else:
             # 多线程并行处理
             with tqdm(total=total_questions, desc="Processing questions") as pbar:
@@ -262,7 +270,7 @@ class QuestionsProcessor:
                     processed_questions.extend(batch_results)
                     
                     if output_path:
-                        self._save_progress(processed_questions, output_path, submission_file=submission_file, team_email=team_email, submission_name=submission_name, pipeline_details=pipeline_details)
+                        self._save_progress(processed_questions, output_path, submission_file=submission_file, pipeline_details=pipeline_details)
                     pbar.update(len(batch_results))
         
         statistics = self._calculate_statistics(processed_questions, print_stats = True)
@@ -420,7 +428,7 @@ class QuestionsProcessor:
         
         return submission_answers
 
-    def _save_progress(self, processed_questions: List[dict], output_path: Optional[str], submission_file: bool = False, team_email: str = "", submission_name: str = "", pipeline_details: str = ""):
+    def _save_progress(self, processed_questions: List[dict], output_path: Optional[str], submission_file: bool = False, pipeline_details: str = ""):
         if output_path:
             statistics = self._calculate_statistics(processed_questions)
             
@@ -440,20 +448,16 @@ class QuestionsProcessor:
                 submission_answers = self._post_process_submission_answers(processed_questions)
                 submission = {
                     "answers": submission_answers,
-                    "team_email": team_email,
-                    "submission_name": submission_name,
                     "details": pipeline_details
                 }
                 with open(output_file, 'w', encoding='utf-8') as file:
                     json.dump(submission, file, ensure_ascii=False, indent=2)
 
-    def process_all_questions(self, output_path: str = 'questions_with_answers.json', team_email: str = "79250515615@yandex.com", submission_name: str = "Ilia_Ris SO CoT + Parent Document Retrieval", submission_file: bool = False, pipeline_details: str = ""):
+    def process_all_questions(self, output_path: str = 'questions_with_answers.json', submission_file: bool = False, pipeline_details: str = ""):
         result = self.process_questions_list(
             self.questions,
             output_path,
             submission_file=submission_file,
-            team_email=team_email,
-            submission_name=submission_name,
             pipeline_details=pipeline_details
         )
         return result
@@ -524,4 +528,10 @@ class QuestionsProcessor:
         
         comparative_answer["references"] = aggregated_references
         return comparative_answer
+
+    def process_single_question(self, question: str, kind: str = "string"):
+        """单条问题即时推理（供 Streamlit UI 调用），返回结构化答案 dict。
+        kind: 支持 'string'、'number'、'boolean'、'names' 等。
+        """
+        return self.process_question(question, schema=kind)
     

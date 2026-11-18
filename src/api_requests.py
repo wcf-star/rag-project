@@ -11,21 +11,33 @@ import requests
 from json_repair import repair_json
 from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_fixed
-from src.ollama_client import (
-    create_ollama_client,
-    get_ollama_base_url,
+from src.model_client import (
+    create_llm_client,
     get_llm_provider,
+    get_default_model,
+    get_ollama_base_url,
     get_ollama_model,
+    get_qwen_api_key,
+    get_qwen_base_url,
+    get_qwen_model,
 )
 
-# OpenAI基础处理器，封装了消息发送、结构化输出、计费等逻辑
+# OpenAI兼容处理器（Ollama 本地 / 千问 DashScope 云端共用），封装消息发送、结构化输出等逻辑
 class BaseOpenaiProcessor:
-    def __init__(self):
+    def __init__(self, provider: Optional[str] = None):
+        self.provider = (provider or get_llm_provider()).lower()
+        if self.provider not in ("ollama", "qwen"):
+            raise ValueError(f"不支持的 LLM provider: {self.provider}")
         self.llm = self.set_up_llm()
-        self.default_model = get_ollama_model()
+        # 默认模型跟随本处理器自身的 provider，而非全局 env，避免显式传入
+        # provider="ollama" 时仍取到 env 里的 qwen 模型。
+        if self.provider == "qwen":
+            self.default_model = get_qwen_model()
+        else:
+            self.default_model = get_ollama_model()
 
     def set_up_llm(self):
-        return create_ollama_client()
+        return create_llm_client(self.provider)
 
     def send_message(
         self,
@@ -37,7 +49,7 @@ class BaseOpenaiProcessor:
         is_structured=False,
         response_format=None
         ):
-        # Use Ollama's OpenAI-compatible chat endpoint for local inference.
+        # 通过 OpenAI 兼容接口调用 Ollama 本地 / 千问云端推理。
         if model is None:
             model = self.default_model
         params = {
@@ -47,22 +59,26 @@ class BaseOpenaiProcessor:
                 {"role": "user", "content": human_content}
             ]
         }
-        if seed is not None:
+        # Ollama 本地支持 seed；千问兼容模式对 seed 支持不稳定，故仅 Ollama 传
+        if seed is not None and self.provider == "ollama":
             params["seed"] = seed
         params["temperature"] = temperature
-            
+
         if not is_structured:
             completion = self.llm.chat.completions.create(**params)
             content = completion.choices[0].message.content
         else:
             if response_format is None:
-                raise ValueError("response_format is required for structured Ollama output.")
+                raise ValueError("response_format is required for structured output.")
             schema = response_format.model_json_schema()
             params["messages"][0]["content"] += (
                 "\nReturn only a JSON object that validates against this JSON schema:\n"
                 + json.dumps(schema, ensure_ascii=False)
             )
-            params["response_format"] = {"type": "json_object"}
+            # Ollama 走严格的 json_object 模式；千问兼容模式对 response_format
+            # 支持不稳定，改为依赖提示词约束 + repair_json 兜底。
+            if self.provider == "ollama":
+                params["response_format"] = {"type": "json_object"}
             completion = self.llm.chat.completions.create(**params)
             raw_content = completion.choices[0].message.content
             parsed_content = json.loads(repair_json(raw_content))
@@ -378,8 +394,8 @@ class BaseGeminiProcessor:
 class APIProcessor:
     def __init__(self, provider: Optional[str] = None):
         self.provider = (provider or get_llm_provider()).lower()
-        if self.provider == "ollama":
-            self.processor = BaseOpenaiProcessor()
+        if self.provider in ("ollama", "qwen"):
+            self.processor = BaseOpenaiProcessor(provider=self.provider)
         else:
             raise ValueError(f"不支持的 LLM provider: {self.provider}")
 
@@ -462,6 +478,12 @@ class APIProcessor:
                             if use_schema_prompt else prompts.ComparativeAnswerPrompt.system_prompt)
             response_format = prompts.ComparativeAnswerPrompt.AnswerSchema
             user_prompt = prompts.ComparativeAnswerPrompt.user_prompt
+        elif schema == "string":
+            # 支持开放性文本问题
+            system_prompt = (prompts.AnswerWithRAGContextStringPrompt.system_prompt_with_schema
+                            if use_schema_prompt else prompts.AnswerWithRAGContextStringPrompt.system_prompt)
+            response_format = prompts.AnswerWithRAGContextStringPrompt.AnswerSchema
+            user_prompt = prompts.AnswerWithRAGContextStringPrompt.user_prompt
         else:
             raise ValueError(f"Unsupported schema: {schema}")
         return system_prompt, response_format, user_prompt
@@ -518,10 +540,16 @@ class AsyncOpenaiProcessor:
         progress_callback=None
     ):
         load_dotenv()
-        model = model or get_ollama_model()
-        request_url = request_url or f"{get_ollama_base_url()}/v1/chat/completions"
+        provider = get_llm_provider()
+        model = model or get_default_model()
+        if provider == "qwen":
+            request_url = request_url or f"{get_qwen_base_url()}/chat/completions"
+            api_key = get_qwen_api_key()
+        else:
+            request_url = request_url or f"{get_ollama_base_url()}/v1/chat/completions"
+            api_key = "ollama"
         if response_format is None:
-            raise ValueError("response_format is required for structured Ollama output.")
+            raise ValueError("response_format is required for structured output.")
         system_content += (
             "\nReturn only a JSON object that validates against this JSON schema:\n"
             + json.dumps(response_format.model_json_schema(), ensure_ascii=False)
@@ -537,10 +565,11 @@ class AsyncOpenaiProcessor:
                     {"role": "system", "content": system_content},
                     {"role": "user", "content": query},
                 ],
-                "response_format": {"type": "json_object"},
                 'metadata': {'original_index': idx}
             }
-            if seed is not None:
+            if provider == "ollama":
+                request["response_format"] = {"type": "json_object"}
+            if seed is not None and provider == "ollama":
                 request["seed"] = seed
             jsonl_requests.append(request)
             
@@ -580,7 +609,7 @@ class AsyncOpenaiProcessor:
                     requests_filepath=requests_filepath,
                     save_filepath=save_filepath,
                     request_url=request_url,
-                    api_key="ollama",
+                    api_key=api_key,
                     max_requests_per_minute=max_requests_per_minute,
                     max_tokens_per_minute=max_tokens_per_minute,
                     token_encoding_name=token_encoding_name,

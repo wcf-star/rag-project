@@ -97,24 +97,24 @@ class AnswerWithRAGContextNamePrompt:
     user_prompt = AnswerWithRAGContextSharedPrompt.user_prompt
 
     class AnswerSchema(BaseModel):
-        step_by_step_analysis: str = Field(description="Detailed step-by-step analysis of the answer with at least 5 steps and at least 150 words. Pay special attention to the wording of the question to avoid being tricked. Sometimes it seems that there is an answer in the context, but this is might be not the requested value, but only a similar one.")
+        step_by_step_analysis: str = Field(description="详细分步推理过程，至少5步，150字以上。特别注意问题措辞，避免被迷惑。有时上下文中看似有答案，但可能并非所问内容，仅为相似项。")
 
-        reasoning_summary: str = Field(description="Concise summary of the step-by-step reasoning process. Around 50 words.")
+        reasoning_summary: str = Field(description="简要总结分步推理过程，约50字。")
 
         relevant_pages: List[int] = Field(description="""
-List of page numbers containing information directly used to answer the question. Include only:
-- Pages with direct answers or explicit statements
-- Pages with key information that strongly supports the answer
-Do not include pages with only tangentially related information or weak connections to the answer.
-At least one page should be included in the list.
+仅包含直接用于回答问题的信息页面编号。只包括：
+- 直接包含答案或明确陈述的页面
+- 强有力支持答案的关键信息页面
+不要包含仅与答案弱相关或间接相关的页面。
+列表中至少应有一个页面。
 """)
 
         final_answer: Union[str, Literal["N/A"]] = Field(description="""
-If it is a company name, should be extracted exactly as it appears in question.
-If it is a person name, it should be their full name.
-If it is a product name, it should be extracted exactly as it appears in the context.
-Without any extra information, words or comments.
-- Return 'N/A' if information is not available in the context
+如为公司名，需与问题中完全一致。
+如为人名，需为全名。
+如为产品名，需与上下文完全一致。
+不得包含多余信息、词语或注释。
+如上下文无相关信息，返回'N/A'。
 """)
 
     pydantic_schema = re.sub(r"^ {4}", "", inspect.getsource(AnswerSchema), flags=re.MULTILINE)
@@ -471,3 +471,47 @@ class RetrievalRankingMultipleBlocks(BaseModel):
     block_rankings: List[RetrievalRankingSingleBlock] = Field(
         description="文本块及其相关性分数的列表。"
     )
+
+
+class AnswerWithRAGContextStringPrompt:
+    """开放性文本问答（kind='string'）的提示词与 Schema，供 Streamlit UI 使用。"""
+    instruction = AnswerWithRAGContextSharedPrompt.instruction
+    user_prompt = AnswerWithRAGContextSharedPrompt.user_prompt
+
+    class AnswerSchema(BaseModel):
+        step_by_step_analysis: str = Field(description="""
+详细分步推理过程，至少5步，150字以上。请结合上下文信息，逐步分析并归纳答案。
+""")
+        reasoning_summary: str = Field(description="简要总结分步推理过程，约50字。")
+        relevant_pages: List[int] = Field(description="""
+仅包含直接用于回答问题的信息页面编号。只包括：
+- 直接包含答案或明确陈述的页面
+- 强有力支持答案的关键信息页面
+不要包含仅与答案弱相关或间接相关的页面。
+列表中至少应有一个页面。
+""")
+        final_answer: str = Field(description="""
+最终答案为一段完整、连贯的文本，需基于上下文内容作答。
+如上下文无相关信息，可简要说明未找到答案。
+""")
+
+    pydantic_schema = re.sub(r"^ {4}", "", inspect.getsource(AnswerSchema), flags=re.MULTILINE)
+
+    example = r'''
+示例：
+问题：
+"请简要总结'万科企业股份有限公司'2022年主营业务的主要内容。"
+
+答案：
+```
+{
+  "step_by_step_analysis": "1. 问题要求总结2022年万科企业股份有限公司的主营业务。\n2. 年报第10-12页详细描述了公司主营业务，包括房地产开发、物业服务等。\n3. 结合上下文，归纳出主要业务板块。\n4. 重点突出房地产开发和相关服务。\n5. 形成简明扼要的总结。",
+  "reasoning_summary": "年报10-12页明确列出主营业务，答案基于原文归纳。",
+  "relevant_pages": [10, 11, 12],
+  "final_answer": "万科企业股份有限公司2022年主营业务包括房地产开发、物业服务、租赁住房、物流仓储等，核心业务为住宅及商业地产开发与运营。"
+}
+```
+'''
+
+    system_prompt = build_system_prompt(instruction, example)
+    system_prompt_with_schema = build_system_prompt(instruction, example, pydantic_schema)

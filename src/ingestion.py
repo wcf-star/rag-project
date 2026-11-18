@@ -9,7 +9,7 @@ from rank_bm25 import BM25Okapi
 import faiss
 import numpy as np
 from tenacity import retry, wait_fixed, stop_after_attempt
-from src.ollama_client import get_ollama_embeddings
+from src.model_client import get_embeddings
 
 
 # BM25Ingestor：BM25索引构建与保存工具
@@ -41,9 +41,9 @@ class BM25Ingestor:
             text_chunks = [chunk['text'] for chunk in report_data['content']['chunks']]
             bm25_index = self.create_bm25_index(text_chunks)
             
-            # 保存BM25索引，文件名用sha1_name
-            sha1_name = report_data["metainfo"]["sha1_name"]
-            output_file = output_dir / f"{sha1_name}.pkl"
+            # 保存BM25索引，文件名用 sha1
+            sha1 = report_data["metainfo"]["sha1"]
+            output_file = output_dir / f"{sha1}.pkl"
             with open(output_file, 'wb') as f:
                 pickle.dump(bm25_index, f)
                 
@@ -77,7 +77,7 @@ class VectorDBIngestor:
         max_batch_size = 25
         for i in range(0, len(text_chunks), max_batch_size):
             embeddings.extend(
-                get_ollama_embeddings(text_chunks[i:i + max_batch_size], model=model)
+                get_embeddings(text_chunks[i:i + max_batch_size], model=model)
             )
         return embeddings
 
@@ -92,6 +92,10 @@ class VectorDBIngestor:
     def _process_report(self, report: dict):
         # 针对单份报告，提取文本块并生成向量库
         text_chunks = [chunk['text'] for chunk in report['content']['chunks']]
+        # 过滤空内容，超长内容截断到 2048 字符（MinerU 按行分块可能产生超长块，
+        # 超出嵌入模型的 token 上下文，需截断后再嵌入）
+        max_len = 2048
+        text_chunks = [t[:max_len] for t in text_chunks if len(t) > 0]
         embeddings = self._get_embeddings(text_chunks)
         index = self._create_vector_db(embeddings)
         return index
@@ -105,8 +109,8 @@ class VectorDBIngestor:
             with open(report_path, 'r', encoding='utf-8') as file:
                 report_data = json.load(file)
             index = self._process_report(report_data)
-            sha1_name = report_data["metainfo"]["sha1_name"]
-            faiss_file_path = output_dir / f"{sha1_name}.faiss"
+            sha1 = report_data["metainfo"]["sha1"]
+            faiss_file_path = output_dir / f"{sha1}.faiss"
             faiss.write_index(index, str(faiss_file_path))
 
         print(f"Processed {len(all_report_paths)} reports")

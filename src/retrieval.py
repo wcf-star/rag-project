@@ -8,7 +8,7 @@ from pathlib import Path
 import faiss
 import numpy as np
 from src.reranking import LLMReranker
-from src.ollama_client import get_llm_provider, get_ollama_embeddings
+from src.model_client import get_embedding_provider, get_embeddings
 
 _log = logging.getLogger(__name__)
 
@@ -32,8 +32,8 @@ class BM25Retriever:
         if document_path is None:
             raise ValueError(f"No report found with '{company_name}' company name.")
             
-        # 加载对应的BM25索引
-        bm25_path = self.bm25_db_dir / f"{document['metainfo']['sha1_name']}.pkl"
+        # 加载对应的BM25索引，文件名用 sha1
+        bm25_path = self.bm25_db_dir / f"{document['metainfo']['sha1']}.pkl"
         with open(bm25_path, 'rb') as f:
             bm25_index = pickle.load(f)
             
@@ -89,45 +89,50 @@ class VectorRetriever:
         self.vector_db_dir = vector_db_dir
         self.documents_dir = documents_dir
         self.all_dbs = self._load_dbs()
-        self.embedding_provider = (embedding_provider or get_llm_provider()).lower()
-        if self.embedding_provider != "ollama":
+        self.embedding_provider = (embedding_provider or get_embedding_provider()).lower()
+        if self.embedding_provider not in ("ollama", "qwen"):
             raise ValueError(f"不支持的 embedding provider: {self.embedding_provider}")
 
     def _get_embedding(self, text: str):
-        return get_ollama_embeddings(text)[0]
+        return get_embeddings(text, provider=self.embedding_provider)[0]
 
     def _load_dbs(self):
         # 加载所有向量库和对应文档，建立映射
         all_dbs = []
         # 获取所有JSON文档路径
         all_documents_paths = list(self.documents_dir.glob('*.json'))
-        vector_db_files = {db_path.stem: db_path for db_path in self.vector_db_dir.glob('*.faiss')}
-        
+
         for document_path in all_documents_paths:
-            stem = document_path.stem
-            if stem not in vector_db_files:
-                _log.warning(f"No matching vector DB found for document {document_path.name}")
-                continue
             try:
                 with open(document_path, 'r', encoding='utf-8') as f:
                     document = json.load(f)
             except Exception as e:
                 _log.error(f"Error loading JSON from {document_path.name}: {e}")
                 continue
-            
+
             # 校验文档结构
             if not (isinstance(document, dict) and "metainfo" in document and "content" in document):
                 _log.warning(f"Skipping {document_path.name}: does not match the expected schema.")
                 continue
-            
+
+            # 用 metainfo['sha1'] 拼接 faiss 文件名
+            sha1 = document.get('metainfo', {}).get('sha1', None)
+            if not sha1:
+                _log.warning(f"No sha1 found in metainfo for document {document_path.name}")
+                continue
+            faiss_path = self.vector_db_dir / f"{sha1}.faiss"
+            if not faiss_path.exists():
+                _log.warning(f"No matching vector DB found for document {document_path.name} (sha1={sha1})")
+                continue
+
             try:
-                vector_db = faiss.read_index(str(vector_db_files[stem]))
+                vector_db = faiss.read_index(str(faiss_path))
             except Exception as e:
                 _log.error(f"Error reading vector DB for {document_path.name}: {e}")
                 continue
-                
+
             report = {
-                "name": stem,
+                "name": sha1,
                 "vector_db": vector_db,
                 "document": document
             }
@@ -136,7 +141,7 @@ class VectorRetriever:
 
     @staticmethod
     def get_strings_cosine_similarity(str1, str2):
-        embedding1, embedding2 = get_ollama_embeddings([str1, str2])
+        embedding1, embedding2 = get_embeddings([str1, str2])
         similarity_score = np.dot(embedding1, embedding2) / (np.linalg.norm(embedding1) * np.linalg.norm(embedding2))
         similarity_score = round(similarity_score, 4)
         return similarity_score
@@ -150,18 +155,22 @@ class VectorRetriever:
             if not metainfo:
                 _log.error(f"Report '{report.get('name')}' is missing 'metainfo'!")
                 raise ValueError(f"Report '{report.get('name')}' is missing 'metainfo'!")
+            # 优先 company_name 字段匹配，否则 fallback 到 file_name 包含关系
             if metainfo.get("company_name") == company_name:
                 target_report = report
                 break
-        
+            elif company_name in metainfo.get("file_name", ""):
+                target_report = report
+                break
+
         if target_report is None:
             _log.error(f"No report found with '{company_name}' company name.")
             raise ValueError(f"No report found with '{company_name}' company name.")
-        
+
         document = target_report["document"]
         vector_db = target_report["vector_db"]
         chunks = document["content"]["chunks"]
-        pages = document["content"]["pages"]
+        pages = document["content"].get("pages", [])
         
         actual_top_n = min(top_n, len(chunks))
         
@@ -169,8 +178,9 @@ class VectorRetriever:
         embedding_array = np.array(embedding, dtype=np.float32).reshape(1, -1)
         if vector_db.d != embedding_array.shape[1]:
             raise ValueError(
-                f"向量库维度为 {vector_db.d}，但 Ollama 嵌入模型输出维度为 "
-                f"{embedding_array.shape[1]}。请使用当前 OLLAMA_EMBEDDING 重新生成向量库。"
+                f"向量库维度为 {vector_db.d}，但当前嵌入模型输出维度为 "
+                f"{embedding_array.shape[1]}（provider={self.embedding_provider}）。"
+                f"请用当前嵌入模型重新生成向量库。"
             )
         distances, indices = vector_db.search(x=embedding_array, k=actual_top_n)
     
@@ -180,8 +190,10 @@ class VectorRetriever:
         for distance, index in zip(distances[0], indices[0]):
             distance = round(float(distance), 4)
             chunk = chunks[index]
-            parent_page = next(page for page in pages if page["page"] == chunk["page"])
-            if return_parent_pages:
+            parent_page = None
+            if pages:
+                parent_page = next((page for page in pages if page["page"] == chunk.get("page")), None)
+            if return_parent_pages and parent_page:
                 if parent_page["page"] not in seen_pages:
                     seen_pages.add(parent_page["page"])
                     result = {
@@ -193,11 +205,11 @@ class VectorRetriever:
             else:
                 result = {
                     "distance": distance,
-                    "page": chunk["page"],
+                    "page": chunk.get("page", 0),
                     "text": chunk["text"]
                 }
                 retrieval_results.append(result)
-            
+
         return retrieval_results
 
     def retrieve_all(self, company_name: str) -> List[Dict]:

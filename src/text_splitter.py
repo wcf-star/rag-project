@@ -1,9 +1,11 @@
 # 把每页文本按 token 分块，作为向量化/检索的最小单元。
 import json
+import os
 import tiktoken
 from pathlib import Path
 from typing import List, Dict, Optional
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+import pandas as pd
 
 # 文本分块工具类，支持按页分块、表格插入、token统计等
 class TextSplitter():
@@ -125,3 +127,77 @@ class TextSplitter():
                 
         # 输出处理文件数统计
         print(f"已分块处理 {len(all_report_paths)} 个文件")
+
+    def split_markdown_file(self, md_path: Path, chunk_size: int = 30, chunk_overlap: int = 5):
+        """
+        按行分割 markdown 文件，每个分块记录起止行号和内容。
+        :param md_path: markdown 文件路径
+        :param chunk_size: 每个分块的最大行数
+        :param chunk_overlap: 分块重叠行数
+        :return: 分块列表
+        """
+        with open(md_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        chunks = []
+        i = 0
+        total_lines = len(lines)
+        while i < total_lines:
+            start = i
+            end = min(i + chunk_size, total_lines)
+            chunk_text = ''.join(lines[start:end])
+            chunks.append({
+                'lines': [start + 1, end],  # 行号从1开始
+                'text': chunk_text
+            })
+            i += chunk_size - chunk_overlap
+        return chunks
+
+    def split_markdown_reports(self, all_md_dir: Path, output_dir: Path, chunk_size: int = 30, chunk_overlap: int = 5, subset_csv: Path = None):
+        """
+        批量处理目录下所有 markdown 文件，分块并输出为 json 文件到目标目录。
+        :param all_md_dir: 存放 .md 文件的目录
+        :param output_dir: 输出 .json 文件的目录
+        :param chunk_size: 每个分块的最大行数
+        :param chunk_overlap: 分块重叠行数
+        :param subset_csv: subset.csv 路径，用于建立 file_name 到 company_name/sha1 的映射
+        """
+        # 建立 file_name（去扩展名）到 company_name / sha1 的映射
+        file2company = {}
+        file2sha1 = {}
+        if subset_csv is not None and os.path.exists(subset_csv):
+            # 优先尝试 utf-8，失败则尝试 gbk（中文 Windows 常见编码）
+            try:
+                df = pd.read_csv(subset_csv, encoding='utf-8')
+            except UnicodeDecodeError:
+                print('警告：subset.csv 不是 utf-8 编码，自动尝试 gbk 编码...')
+                df = pd.read_csv(subset_csv, encoding='gbk')
+            # 自动识别主键列
+            if 'file_name' in df.columns:
+                for _, row in df.iterrows():
+                    file_no_ext = os.path.splitext(str(row['file_name']))[0]
+                    file2company[file_no_ext] = row['company_name']
+                    if 'sha1' in row:
+                        file2sha1[file_no_ext] = row['sha1']
+            elif 'sha1' in df.columns:
+                for _, row in df.iterrows():
+                    file_no_ext = str(row['sha1'])
+                    file2company[file_no_ext] = row['company_name']
+                    file2sha1[file_no_ext] = row['sha1']
+            else:
+                raise ValueError('subset.csv 缺少 file_name 或 sha1 列，无法建立文件名到公司名的映射')
+
+        all_md_paths = list(all_md_dir.glob("*.md"))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for md_path in all_md_paths:
+            chunks = self.split_markdown_file(md_path, chunk_size, chunk_overlap)
+            output_json_path = output_dir / (md_path.stem + ".json")
+            # 查找 company_name 和 sha1
+            file_no_ext = md_path.stem
+            company_name = file2company.get(file_no_ext, "")
+            sha1 = file2sha1.get(file_no_ext, "")
+            # metainfo 只保留 sha1、company_name、file_name 字段
+            metainfo = {"sha1": sha1, "company_name": company_name, "file_name": md_path.name}
+            with open(output_json_path, 'w', encoding='utf-8') as f:
+                json.dump({"metainfo": metainfo, "content": {"chunks": chunks}}, f, ensure_ascii=False, indent=2)
+            print(f"已处理: {md_path.name} -> {output_json_path.name}")
+        print(f"共分割 {len(all_md_paths)} 个 markdown 文件")

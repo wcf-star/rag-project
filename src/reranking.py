@@ -3,7 +3,7 @@ import requests
 import src.prompts as prompts
 from concurrent.futures import ThreadPoolExecutor
 from src.api_requests import APIProcessor
-from src.ollama_client import get_llm_provider
+from src.model_client import get_llm_provider
 
 
 # JinaReranker：基于Jina API的重排器，适用于多语言场景
